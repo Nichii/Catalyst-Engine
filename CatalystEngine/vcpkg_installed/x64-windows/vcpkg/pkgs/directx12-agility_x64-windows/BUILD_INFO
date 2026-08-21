@@ -1,6 +1,0 @@
-CRTLinkage: dynamic
-LibraryLinkage: dynamic
-PolicyDLLsWithoutLIBs: enabled
-PolicyDLLsInStaticLibrary: enabled
-PolicyMismatchedNumberOfBinaries: enabled
-PolicyEmptyIncludeFolder: enabled
