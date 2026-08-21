@@ -11,8 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(CatalystEngine WIN32
     src/Main.cpp
-    src/DX12Renderer.cpp
-    src/DX12Renderer.h
+    src/Renderer.cpp
+    src/Renderer.h
 )
 
 target_compile_definitions(CatalystEngine
