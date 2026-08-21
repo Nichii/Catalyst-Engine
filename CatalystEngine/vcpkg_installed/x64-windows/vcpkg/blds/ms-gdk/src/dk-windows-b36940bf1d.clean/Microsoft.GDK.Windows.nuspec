@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Microsoft.GDK.Windows</id>
+    <version>2604.3.7874</version>
+    <title>Microsoft Game Development Kit (GDK) for Windows</title>
+    <authors>Microsoft</authors>
+    <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <license type="file">LICENSE.md</license>
+    <licenseUrl>https://aka.ms/deprecateLicenseUrl</licenseUrl>
+    <readme>README.md</readme>
+    <projectUrl>https://aka.ms/gamedevdocs</projectUrl>
+    <description>The Microsoft Game Development Kit contains the common tools, libraries, and documentation needed to build games for Xbox Game Pass for PC on Windows and cloud gaming with Xbox Game Pass Ultimate.</description>
+    <releaseNotes>Provides BWOI support for Microsoft GDK (260403) for Windows projects. 10.0.26100.7874 (xb_flt_2604ge.20160101-0000)</releaseNotes>
+    <copyright>© Microsoft Corporation. All rights reserved.</copyright>
+    <language>en-us</language>
+    <tags>DirectX games GDK native nativepackage</tags>
+    <repository type="git" url="https://github.com/microsoft/GDK.git" />
+    <dependencies>
+      <dependency id="Microsoft.GDK.Core" version="2604.3.7874" />
+    </dependencies>
+  </metadata>
+</package>

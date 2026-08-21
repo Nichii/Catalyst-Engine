@@ -1,0 +1,6 @@
+Package: winpixevent
+Version: 1.0.240308001
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 331ef6e208830abe53626a83c6c2c93bec76d1f11d6e9c5e471563f27ed9f659
+Description: Allows applications to be instrumented with marker events, for use with Microsoft PIX.

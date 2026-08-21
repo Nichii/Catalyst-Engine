@@ -1,0 +1,14 @@
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/share/directxmath/DirectXMath-targets.cmake
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXCollision.h
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXCollision.inl
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXColors.h
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXMath.h
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXMathConvert.inl
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXMathMatrix.inl
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXMathMisc.inl
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXMathVector.inl
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXPackedVector.h
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/include/DirectXPackedVector.inl
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/share/directxmath/directxmath-config.cmake
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/share/directxmath/directxmath-config-version.cmake
+C:/Users/nick.chan/Documents/CPlusPlusProjects/CatalystEngine/CatalystEngine/vcpkg_installed/x64-windows/vcpkg/pkgs/directxmath_x64-windows/lib/pkgconfig/DirectXMath.pc

@@ -1,0 +1,549 @@
+﻿Submission Validator Release Notes
+
+--------------------------------------
+System Requirements
+--------------------------------------
+The symbol bundling feature in Submission Validator versions 10.0.14393.2073 and newer requires the Visual C++ 2015 runtime files. Installing one of the following products will install the necessary Visual C++ 2015 runtime files:
+
+* The October 2016 or newer Xbox One XDK or Xbox One XDK Tools
+* The GDK or GDK Tools
+* The Visual C++ 2015 Redistributable from https://www.microsoft.com/en-us/download/details.aspx?id=53587
+* Visual Studio 2015
+
+--------------------------------------
+Downloading Submission Validator
+--------------------------------------
+Starting in March 2025, Submission Validator is available for download at a public location that does not require authentication.
+
+* The latest zip file can be downloaded from https://aka.ms/currentsubvalzip
+* A manifest file with metadata about the zip file can be downloaded from https://aka.ms/subvalmanifest
+
+See https://forums.xboxlive.com/articles/174445/announcing-new-location-for-submission-validator-d.html for additional details.
+
+--------------------------------------
+Installing Submission Validator for the Xbox One XDK
+--------------------------------------
+1. Install the Xbox One XDK.
+2. Download and unpack the Submission Validator .zip file on your local PC. Note - the same version of Submission Validator is used for the Xbox One XDK and the GDK.
+3. Copy the file named SubmissionValidator.dll to the %durangoxdk%\bin directory. Typically, this directory is c:\Program Files (x86)\Microsoft Durango XDK\bin. You must have administrative privileges to copy files into this directory.
+4. Run makepkg.exe pack (without the /LU switch) or makepkg.exe validate to invoke Submission Validator.
+
+--------------------------------------
+Installing Submission Validator for the GDK
+--------------------------------------
+1. Install the GDK.
+2. Download and unpack the Submission Validator .zip file on your local PC. Note - the same version of Submission Validator is used for the Xbox One XDK and the GDK.
+3. Copy the file named SubmissionValidator.dll to the %gamedk%\bin directory. Typically, this directory is c:\Program Files (x86)\Microsoft GDK\bin. You must have administrative privileges to copy files into this directory.
+4. Run makepkg.exe pack (without the /LU switch) or makepkg.exe validate to invoke Submission Validator.
+
+For additional information related to Submission Validator, the checks it performs and proper usage, refer to the documentation topics "Submission Validator" and "Submission Validator Quality Checks".
+
+--------------------------------------
+Version 2610.307.18000.0 (7/19/2026)
+--------------------------------------
+* Correct false positives for ILI_NotApprovedBinaryVersion, ILI_GameOsVersionMismatchWithCompiledBinaries, ILI_GameOsAndMsComponentMismatch, and ILI_MsComponentMismatch caused by Microsoft components that use independent versioning (for example, XCurl.dll and PlayFab binaries). Only components from the original GDK/XDK version-check list are now compared against the GameOS version.
+* Address multiple other regressions introduced during the modernization of SubmissionValidator.dll to .NET, improving parity with the prior C++ implementation across binary scanning, manifest validation, image checks, symbol bundling, and DLC handling.
+
+--------------------------------------
+Version 2608.307.1000.0 (7/2/2026)
+--------------------------------------
+* Report a FAILURE if the default language specified in MicrosoftGame.config is not on the supported language list (ILI_DefaultLanguageNotOnAllowList).
+* Report a WARNING at 80% and a FAILURE at 100% for package structural limits on chunk count, file count, XTS entry count, and region specifier list count (ILI_PackageStructureLimitApproached, ILI_PackageStructureLimitExceeded).
+* Run the Package Specifier Check for PC packages. Console-only launch size reporting and device-specific breakdowns are omitted for PC packages.
+* Correct an issue in the Package Specifier Check that could fail report generation when a feature/specifier value started with a number (for example, "0000").
+* Remove a WARNING for StoreProvider ExtendedAttribute in MicrosoftGame.config.
+* Suppress symbol lookup warnings for D3D redistributable DLLs (D3DCompiler, dxcompiler, dxil, dxgi, d3d12) that do not ship with PDB files.
+* Rename ILI_GameOsVersionUpdatesOnly to ILI_GameOSVersionExpired, ILI_PcGdkUpdatesOnly to ILI_PcGdkVersionExpired, and ILI_UpdateOnlyBinaryVersion to ILI_BinaryVersionExpired. Update the message text to indicate the GameOS, GDK, or binary version is expired and will no longer receive hotfixes. These changes are part of retiring XR-083.
+
+--------------------------------------
+Version 10.0.26100.7798 (3/30/2026)
+--------------------------------------
+* Report a FAILURE for MSIXVC2 developer preview packages. Submitting these packages to certification is not supported during the developer preview period. The MSIXVC2 developer preview tools are available starting in the April 2026 GDK.
+* Do not report an ILI_ArchitectureArm64Mismatch FAILURE for Arm64EC (emulation compatible) binaries.
+* Update the ILI_ArchitectureAmd64Mismatch and ILI_ArchitectureX86Mismatch WARNINGs to only apply to executables that are listed in the MicrosoftGame.config file.
+* Report an ILI_SymbolHandlingInitError INFO message and continue validation if Submission Validator encounters a crash during symbol bundling instead of exiting early.
+
+--------------------------------------
+Version 10.0.26100.6877 (10/20/2025)
+--------------------------------------
+* Report a FAILURE if the Unity version used in the title may be vulnerable to CVE-2025-59489 (ILI_UnityVulnerableToCVE_2025_59489_Exploit). See https://aka.ms/unity_security for more information.
+* Update the check for dynamically linking to Xbox Services to also check for libHttpClient.dll (ILI_MissingDependentFile).
+
+--------------------------------------
+Version 10.0.26100.6132 (9/24/2025)
+--------------------------------------
+* Correct an issue introduced in version 10.0.26100.6126 that caused makepkg.exe to fail to create a package due to an error parsing registration data and error code 80070057. Version 10.0.26100.6126 has been recalled due to this issue.
+* Report a FAILURE if a package contains an Executable with the Architecture attribute set to ARM64 that is not compiled for the ARM64 platform (ILI_ArchitectureArm64Mismatch).
+* Report a FAILURE if a package contains an Executable that is compiled for the ARM64 platform but does not have the Architecture attribute set to ARM64 (ILI_ArchitectureArm64NotMarked).
+* Report a WARNING if a package contains Dynamic Debugger binaries named *.alt.exe or *.alt.dll (ILI_DynamicDebuggerBinary).
+* Correct an issue that caused Submission Validator to incorrectly report ILI_MissingDependentFile for files in sub-directories when running makepkg.exe validate.
+* Update the text for ILI_GameOsVersionUpdatesOnly to include a link to the GDK Approved Libraries page at https://aka.ms/GdkApprovedLibs.
+
+--------------------------------------
+Version 10.0.26100.5258 (5/23/2025)
+--------------------------------------
+* Report a FAILURE if a title includes both steamworks_x64.dll and steam_api64.dll (ILI_InvalidPlatformFileCritical).
+* Report INFO if a title includes steamworks_x64.dll but not steam_api64.dll (ILI_InvalidPlatformFile).
+* Report INFO if a title has a delay loaded dependency on a file that is not included in the layout. If there are runtime scenarios where the title uses the dependency, then the file must be included in the layout for your package (ILI_MissingDelayLoadedDependentFile).
+* Update the Submission Validator download link to point to the new public location https://aka.ms/currentsubvalzip.
+
+--------------------------------------
+Version 10.0.26100.3976 (3/05/2025)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add support for validating the GDK version used to build PC titles. Report a FAILURE for PC titles built with an unreleased GDK version (ILI_PcGdkUnsupported). Report INFO for PC titles built with an expired GDK version (ILI_PcGdkUpdatesOnly). Report INFO for PC titles where the version is unable to be determined. These titles will treat the GDK building the package as the version in use by the title. This check will only be performed on titles packaging with new GDK tools at this time but will be extended to apply to older GDKs in the future. See https://aka.ms/EmbeddedGdkVersion and https://aka.ms/GdkApprovedLibs for more information.
+* Report a WARNING for packages over 450 GB (ILI_XvcPackageSizeApproached) and Report a FAILURE for packages over 500 GB in size (ILI_XvcPackageSizeExceeded).
+* Report a FAILURE if a title dynamically links to Xbox Services but required binaries libHttpClient.GDK.dll and XCurl.dll are missing from the layout (ILI_MissingDependentFile).
+* Correct an issue that caused Submission Validator to incorrectly report that the MicrosoftGame.config needed to be updated to specify configVersion=1 for an Xbox title built with some old GDK versions.
+* Report INFO that specifying more than 4 GB of PersistentLocalStorage in MicrosoftGame.config will have performance implications, especially for Xbox Cloud Gaming (ILI_PersistentLocalStorageTooLarge).
+
+--------------------------------------
+Version 10.0.26100.1869 (7/25/2024)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a FAILURE if MicrosoftGame.config has XboxLockhartTitleMemory = Advanced and the title is built with a GDK that does not have support for this feature. Support was added starting in the October 2023 GDK Update 4 and the March 2024 GDK.
+* Report INFO instead of a WARNING when the version of SubmissionValidator.dll has been superseded and will expire soon (ILI_OnlineSubValPendingExpiration).
+* Remove the WARNING for a missing PDB file for libHttpClient.GDK.dll.
+* Correct an issue that prevented symbol bundle generation from using a random directory name in each new packaging run. This issue led to cases where symbol bundling failed because the symbol path was too long.
+
+--------------------------------------
+Version 10.0.25398.3112 (2/05/2024)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a FAILURE if MicrosoftGame.config has configVersion = 0 and the packaging tools used to create the package are from the October 2023 GDK or later.
+* Report a FAILURE if the WindowsOsVersion element contains inconsistent values. The RequiredMinimum value must be less than or equal to the SuggestedMinimum value which must be less than or equal to the Recommended value.
+* Report a FAILURE if the MSAAppId is not in the correct format (15 hex characters or a GUID). This catches a common mistake of dropping leading zeroes from an MSAAppId value.
+* Report a more specific error message if Submission Validator is unable to include the contents of the MicrosoftGame.config or AppXManifest.xml in the log file.
+* Remove the User Model element from the log file for DLC packages because the user model is not applicable to DLC packages.
+* Update the wording for the INFO text that appears when a a package is larger than a disc to include the maximum allowable size for mastering to a disc.
+
+--------------------------------------
+Version 10.0.22621.3824 (3/30/2023)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Remove the checks for /DYNAMICBASE:NO and /HIGHENTROPYVA:NO for PC packages and Xbox XDK packages.
+* Remove the check for /HIGHENTROPYVA:NO for DLLs.
+* Report a WARNING instead of a FAILURE if a binary in an Xbox GDK package is compiled with /DYNAMICBASE:NO or /HIGHENTROPYVA:NO.
+
+--------------------------------------
+Version 10.0.22621.3813 (3/20/2023)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue introduced in version 10.0.22621.3025 that incorrectly reported a FAILURE for PC titles that contain managed code binaries.
+
+--------------------------------------
+Version 10.0.22621.3025 (3/15/2023)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add support for creating a second log file with Korean or Simplified Chinese error, warning and informational strings. This feature requires setting the PC system language to one of the supported languages or passing the desired language via the makepkg.exe /validationlanguage command line switch that was added starting with the June 2022 GDK.
+* Report a FAILURE if a PC package does not have has a splash screen image.
+* Report a FAILURE if a binary in the package is compiled with /DYNAMICBASE:NO or /HIGHENTROPYVA:NO.
+* Report INFO instead of a FAILURE for deprecated DesktopRegistration entries disableFilesystemWriteVirtualization, disableRegistryWriteVirtualization, enableWritesToPackageRoot and modFolder in MicrosoftGame.config.
+* Report INFO instead of a WARNING when the version of Submission Validator being used will expire soon.
+* Remove a WARNING for extended attributes internetClient, internetClientServer, packageWriteRedirectionCompatibilityShim, privateNetworkClientServer and runFullTrust in MicrosoftGame.config.
+* Correct an issue that caused incorrect errors to be reported if SubmissionValidator_stub.dll was replaced with SubmissionValidator.dll in the XDK or GDK bin directory.
+* Update the wording for the INFO text that appears when a game OS is not approved for new title submissions.
+ 
+--------------------------------------
+Version 10.0.22621.1024 (6/09/2022)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add support for creation of a second log file with Japanese error, warning and informational strings. This feature requires the makepkg.exe /validationlanguage command line switch that was added starting with the June 2022 GDK.
+
+--------------------------------------
+Version 10.0.22000.4310 (4/15/2022)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add a ValidationSummary element near the top of the log file with the count of failures, warnings, and the Id values of those failures and warnings. Id values have also been moved inline in the validation log to facilitate lookup of individual failures and warnings in the documentation.
+* Report a FAILURE if MicrosoftGame.config has configVersion >= 1 and MSAAppId is set but TitleId is not or vice versa.
+* Report a FAILURE if MicrosoftGame.config has configVersion >= 1 and TitleId is set to the default value of 'FFFFFFFF'.
+* Report a FAILURE if MicrosoftGame.config has configVersion >= 1 and it contains deprecated DesktopRegistration entries DisableFilesystemWriteVirtualization, DisableRegistryWriteVirtualization, EnableWritesToPackageRoot or ModFolder.
+* Report a FAILURE instead of a WARNING for Internet connectivity issues.
+* Report INFO instead of a WARNING for some issues that are not impactful enough to justify warnings for.
+* Correct an issue introduced in version 10.0.22000.3132 that incorrectly reported a WARNING for a missing store logo image file if the path includes forward slashes instead of back slashes.
+* Correct an issue introduced in version 10.0.22000.3132 that incorrectly reported a WARNING about an incorrect GameOSVersion value for 2015 and earlier XDK versions.
+
+--------------------------------------
+Version 10.0.22000.3132 (2/09/2022)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add support for file paths longer than MAX_PATH to SubmissionValidator.dll.
+* Report a FAILURE for PC packages that have a dependency on Visual C++ 2010 runtime DLLs that are not present in the package.
+* Report a FAILURE if any IsDevOnly executables are present in a PC package to avoid packages going to certification with these executables present.
+* Report a FAILURE if a DLC package includes a TitleId element.
+* Report a FAILURE if a PE file includes a .textbss section because these files cannot be loaded in retail titles.
+* Report a FAILURE if a PC title has AdvancedUserModel set to false in MicrosoftGame.config and is built with a GDK that does not have support for this feature.
+* Report a FAILURE if MicrosoftGame.config has configVersion >= 1 and MSAAppId is not present or is set to the default value of 'PleaseChangeMe'.
+* Report a WARNING in the log file when a test that requires a package is skipped due to running MakePkg.exe validate prior to package creation. Previously this warning was printed to stdout but not to the log file.
+* Report a WARNING for PC packages built with tools prior to the October 2021 GDK because it does not include metadata that allows for efficient updates in the new streaming model.
+* Report a WARNING if using paths longer than MAX_PATH.
+* Report a WARNING if MicrosoftGame.config has configVersion == 0 and the packaging tools used to create the package are from the March 2022 GDK or later.
+* Update the text for the WARNING for cross-SCID reads for XDK titles to reflect that it is allowed and supported but developers need to be aware when using it.
+* Remove a WARNING for .map files.
+* Remove a WARNING for Scid/SandboxIds ExtendedAttributes.
+* Remove a WARNING for PC packages that do not support Mods.
+* Remove WARNINGs for mx:SecureDeviceSocketUsage SendInsecure and ReceiveInsecure to support the removal of XR-12.
+* Remove WARNINGs for missing PDB files for some additional middleware binaries.
+* Update the symbol bundle filename to include _x or _xs for console generations.
+* Update the download link for GDK (both Console and PC) packages to point to a GDK specific URL.
+
+--------------------------------------
+Version 10.0.19041.6955 (6/03/2021)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue introduced in version 10.0.19041.6926 that resulted in numerous warnings for processor architecture mismatches when using the Unity game engine. This fix also requires makepkg.exe from the February 2021 GDK QFE 4, April 2021 GDK QFE 3, June 2021 GDK or newer.
+
+--------------------------------------
+Version 10.0.19041.6926 (5/04/2021)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a FAILURE when IsDevOnly executables are present in the MicrosoftGame.config to remind developers to remove them before submitting the title to certification.
+* Report a WARNING if any PE files in a PC package do not match the declared package architecture.
+* Add a UserModel element to the log file to report which user model (Advanced or Simplified) that the title is using.
+* Add an informational note to the log file if the RequiresXboxLive element is set in MicrosoftGame.config.
+* Update the text of the WARNING reported during symbol bundling if a PE file has GUID_NULL for its PDB information because this means that the file has the PDB information stripped and setting symbol paths will not help find a matching PDB. 
+
+--------------------------------------
+Version 10.0.19041.5030 (1/11/2021)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Remove a WARNING for some 3rd party components which no longer require an XR exception.
+* Remove the requirement that a PC package has a splash screen.
+* Report a FAILURE when a PC package includes a 4K splash screen.
+* Add a check for the 0x200E character (left-to-right mark) in display fields in the MicrosoftGame.config and AppXManifest.xml file.
+* Correct an additional issue that caused a crash when validating non-retail dependencies for PE files that are protected with anti-tampering software.
+* Correct an issue that caused validation to report success when the Layout Binary Scan check found missing Framework packages.
+* Correct an issue that could cause an integer underflow in Feature/Recipe size reporting in the log file.
+* Update the formatting for size reporting in the log file to make it easier to read.
+
+--------------------------------------
+Version 10.0.19041.4161 (8/25/2020)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Remove the WARNING for the maximum launch marker size because XR-034 guidelines have been relaxed.
+* Remove the WARNING added in 10.0.19041.2916 if the version value for a Scarlett package starts with 1.X.X.X.
+* Remove the WARNING for missing PDB files for recently added Visual C++ runtime DLLs.
+* Report a FAILURE when a Game Core package includes debug versions of Visual C++ runtime DLLs.
+* Report a FAILURE when more than one executable is included in the package when signing with a local EKB file.
+* Correct an issue that caused a crash when validating non-retail dependencies for PE files that are protected with anti-tampering software.
+* Correct an issue that caused validation to fail to find the package when using the XDK_Cert_XVC environment variable with a Game Core package.
+
+--------------------------------------
+Version 10.0.19041.2916 (5/12/2020)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a WARNING if age ratings are specified in the AppXManifest.xml file for a new title submission. Age ratings are now only accepted for Content Updates.
+* Report a WARNING if the version value for a Scarlett package starts with 1.X.X.X. We recommend that Xbox One packages have versions that start with 1.X.X.X and Scarlett packages have versions that start with 2.X.X.X.
+* Starting with titles built with the May 2020 GDK, report a WARNING if the Xbox One graphics stack is used in binaries included in a Scarlett package or if the Scarlett graphics stack is used in binaries included in an Xbox One package.
+* Add a Generation element to the log file to make it easier to differentiate between Xbox One and Scarlett packages.
+
+--------------------------------------
+Version 10.0.19041.1713 (3/9/2020)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a WARNING instead of a FAILURE when a title uses insecure sockets.
+* Report a FAILURE when an Xbox package includes a 4K splash screen.
+* Report a FAILURE for MSIXVC packages that have a dependency on a VC redistributable but fail to declare it in their MicrosoftGame.config file.
+* Add a check for invalid control characters in the MicrosoftGame.config file in Game Core packages.
+* Update the text of the WARNING when no ratings are included in the manifest to indicate they may be inaccurate in offline scenarios only.
+* Remove the WARNING about TitleMemory usage for Game Core titles.
+* Add the compiler versions used to build PE files to the log file for informational purposes.
+* Add the GDK version, Windows version, Windows 10 SDK version, and Gaming Runtime version to the log file for informational purposes.
+
+--------------------------------------
+Version 10.0.18362.7198 (6/25/2019)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue that caused an inaccurate error message to be reported for DLC packages that did not have an executable in the MicrosoftGame.config file.
+* Update validation to check for foreign files and non-retail dependencies in PC packages.
+* Update validation to allow PC packages to have more than one executable.
+* Append the contents of the generated AppXManifest.xml to the log file if applicable.
+
+--------------------------------------
+Version 10.0.18362.7101 (5/10/2019)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Significantly refactored code to add support for validating MSIXVC packages. This could lead to unintended side effects. Please contact your Microsoft Account Manager or use the forums to report any unexpected behavior from this version of Submission Validator.
+* Remove check for a final chunk with ID 1073741823 because it is no longer required.
+* Update Binary Scan check to eliminate dependency on dumpbin.exe.
+
+--------------------------------------
+Version 10.0.18296.1000 (12/13/2018)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add a list of all binary files found in the package to the Layout Binary Scan section of the log file for informational purposes.
+* Report a WARNING if a newer version of Submission Validator is available for download.
+* Correct an issue that can cause symbol bundling to fail with error code 0x80070050 (ERROR_FILE_EXISTS) when multiple packages are built in parallel.
+
+--------------------------------------
+Version 10.0.17748.1004 (8/28/2018)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue introduced in version 10.0.17733.1001 that can cause makepkg.exe to crash during symbol resolution in some scenarios.
+
+--------------------------------------
+Version 10.0.17733.1001 (8/8/2018)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue introduced in version 10.0.17134.1151 that prevented symbol resolution from working correctly in some scenarios.
+
+--------------------------------------
+Version 10.0.17134.1151 (7/26/2018)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a WARNING if a title requests additional memory for the original Xbox One console hardware type.
+* Correct an issue where symbol bundling failed if the name of the package directory included square brackets ([ or ]).
+
+--------------------------------------
+Version 10.0.17133.1011 (3/29/2018)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Update the list of files that are not permitted in submission packages to include debug_licensing_overrides.xml.
+* Update the logic used to find DumpBin.exe to include checking in the Xbox One XDK bin directory.
+
+--------------------------------------
+Version 10.0.16299.1083 (12/05/2017)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue where manifest logo checks did not support absolute paths or paths outside of the loose directory in the layout file.
+* Correct an issue where manifest logo checks incorrectly reported the logo files as missing when running validation without a layout file.
+* Correct an issue where stdout reported incorrect information about the Logo file in the Properties element not being found.
+* Correct an issue where failing to find Dumpbin.exe on the PC resulted in misleading log entries and failure to run the remainder of the tests.
+* Correct an issue where the prerelease version check incorrectly reported DLLs as unapproved.
+
+--------------------------------------
+Version 10.0.16299.1028 (10/17/2017)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a FAILURE if a title includes the CanSuppressPartyChat capability in AppXManifest.xml. Usage of this capability requires an XR exception.
+* Report a WARNING for titles that target the June 2017 XDK or newer and do not specify the TitleMemory element in AppXManifest.xml. See https://forums.xboxlive.com/articles/69270/your-xbox-one-x-enhanced-game-and-titlememory.html and https://forums.xboxlive.com/articles/69454/solution-to-mxtitlememory-causes-makepri-error-0x8-1.html for more information about the TitleMemory element.
+* Correct an issue introduced in Submission Validator version 10.0.16299.1004 that caused application logo images to not be found if the paths in AppXManifest.xml use forward slashes instead of back slashes.
+
+--------------------------------------
+Version 10.0.16299.1004 (9/28/2017)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a WARNING for titles that target the October 2016 XDK through the October 2016 XDK QFE 5 or the March 2017 XDK through the March 2017 XDK QFE 3 in case they are using an older version of the Achievements 2017 APIs that has a known bug with offline achievement unlocking.
+* Report a WARNING instead of informational text for overly large launch chunks.
+* Correct an issue where packages built with /updcompat 1 did not report region specifiers for chunks.
+* Add validation to ensure that application logo images appear in both the layout and the chunk layout XML file.
+* Add validation for the size and format of localized application logo images.
+* Add PEGI-PT:3 as a valid rating value.
+* Add the number of bytes that a chunk is over or under the maximum size to the log file for informational purposes.
+* Add the XDK version number that is packaged with the title to the log file for informational purposes.
+
+--------------------------------------
+Version 10.0.16241.1000 (7/11/2017)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a WARNING for titles that target the June 2017 XDK to indicate that they depend on an Xbox console OS version that will ship later in 2017.
+* Add the product ID, content ID and build ID to the log file.
+* Update the list of revoked versions of XboxIntegratedMultiplayer.dll.
+* Update the wording on the Package Size Check to indicate that the max launch size applies to the largest download a user will see, not the physical size of all chunks in the launch set.
+
+--------------------------------------
+Version 10.0.16201.1003 (5/23/2017)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a FAILURE if any language specifiers used in the layout file are not present in the AppXManifest.
+* Report a FAILURE if the title includes a revoked version of XboxIntegratedMultiplayer.dll.
+* Report a WARNING for any chunks larger than 25 GB because that type of chunk could restrict multi-disc options.
+* Report a WARNING for some 3rd party components which require an XR exception.
+* Add Intelligent Install summary information and launch chunk size information (largest and smallest possible chunks for each device type) to the output log.
+* Correct an issue where forward slashes in the layout file could result in symbol bundling failures.
+
+--------------------------------------
+Version 10.0.14393.2116 (10/31/2016)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Use the Title Identity instead of the Display Name for the Title field in the game.txt file generated by symbol bundling. This eliminates problems caused by long names and invalid characters.
+* Disable symbol bundle zip file creation for ADK applications.
+* Optimize symbol lookup by also looking in the same directory as the EXE/DLL for a matching PDB file.
+
+--------------------------------------
+Version 10.0.14393.2086 (10/04/2016)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Change the name of the symbol bundle zip file to PackageFullName_TitleId.zip to avoid issues with special characters in title names.
+* Add command line parameters to MakePkg to specify the comma delimited list of symbol paths and to disable symbol bundling. This functionality requires the October 2016 or newer XDK or XDK Tools.
+
+--------------------------------------
+Version 10.0.14393.2073 (9/26/2016)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Allow 4k splash screen images for titles.
+* Report a FAILURE if AppXManifest.xml includes the xbox.contentpackage package extension but is configured as a title and not a downloadable content (DLC) package.
+* Add a step that creates a zip file named TitleName_TitleId.zip containing any EXE/DLL files and their associated PDB files for symbol resolution. This file can be submitted as part of title submission to assist with backwards compatibility and crash dump debugging. A WARNING will be printed for any files for which symbol resolution fails. That path can be specified as part of a comma delimited list to the environment variable _NT_SYMBOL_PATH and the bundle can be recreated by running 'makepkg validate' instead of 'makepkg pack' with the other parameters being identical. The environment variable SUBMISSION_VALIDATION_NO_SYMBOL_BUNDLING can also be set to skip this step.
+
+--------------------------------------
+Version 10.0.14366.1011 (6/28/2016)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Update the maximum launch chunk size from 5 GB to 12 GB.
+* Add the contents of the AppXManifest.xml at the time of packaging to the log file. It will be located in an XML node named ManifestContents.
+
+--------------------------------------
+Version 10.0.10586.1087 (2/1/2016)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Remove binary version checks for Microsoft.Xbox.Services.dll and Microsoft.Xbox.GameChat.dll. This change only applies to titles built with the November 2015 XDK and newer. The version check will still occur for titles built with earlier XDKs.
+* Correct an issue that caused Submission Validator to fail to run DumpBin.exe when Visual Studio is not installed on the PC.
+
+--------------------------------------
+Version 10.0.10567.1004 (10/14/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct an issue that caused Submission Validator to report non-retail dependencies for valid system components.
+
+--------------------------------------
+Version 10.0.10553.1007 (10/01/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Report a FAILURE if a title includes the SendInsecure or ReceiveInsecure privileges in AppXManifest.xml.
+* Report a FAILURE instead of a WARNING if files with .pdb, .h, .cpp, or .cxx extensions are included in the package.
+* Report a FAILURE instead of a WARNING if the package created with the July 2015 XDK MakePkg toolchain and earlier fails BAT verification.
+* Report a FAILURE instead of a WARNING if a title includes the BackgroundAudio privilege in AppXManifest.xml.
+* Report a FAILURE if there are duplicate XboxSystemResources entries in AppXManifest.xml.
+* Add validation to ensure that the <Package> tag in AppXManifest.xml contains the property 'IgnorableNamespaces="mx"' and contains no other IgnorableNamespaces values.
+* Update the package size check from 49,000,000,000 bytes to 49,900,000,000 bytes.
+
+--------------------------------------
+Version 6.2.13326.0 (08/13/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Remove BAT check for XVDs created with the August 2015 XDK MakePkg toolchain and later, since BAT verification is no longer necessary.
+* Correct an issue that caused Submission Validator to report success at the end of validation when the package failed some types of checks. 
+
+--------------------------------------
+Version 6.2.13296.0 (07/16/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add validation for Ratings in AppXManifest.xml.
+* Report a FAILURE if there are duplicate ActivatableClassId entries in the windows.activatableClass.inProcessServer extensions in AppXManifest.xml.
+* Report a FAILURE if an ADK app specifies mx:PersistentLocalStorage in AppXManifest.xml. This is only available to XDK titles.
+* Correct an issue with XML tags in the validation report when running validation without a layout file.
+* Update the WARNING text for mismatched data in a chunk to indicate that it only applies to packages built with /updcompat 1.
+
+--------------------------------------
+Version 6.2.12796.0 (04/08/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Correct issues with detection of foreign files and non-retail dependencies which are specified by partial wildcard matching or use of directory paths instead of a single filename within the Include element in the layout file.
+
+--------------------------------------
+Version 6.2.12512.0 (02/26/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add support for proxy servers in the online version check.
+* Add validation for Kinect Pipeline manifest version to ensure Vision/Speech/Audio pipelines are all compatible.
+* Correct an issue with detection of foreign files and non-retail dependencies which are specified by a single "*" in the layout file.
+* Update the WARNING text to give more details about Bat check failures.
+* Add an informational message to the XVC Size check which gives the size of the launch set in bytes.
+
+--------------------------------------
+Version 6.2.12100.0 (01/07/2015)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Various small improvements to error messages to improve usability
+* Report a WARNING if a title requests more than 4GB of Persistent Local Storage
+* Report a FAILURE if the output package contains non-contiguous blocks 
+ 
+* Report a WARNING if a title requests more than 4GB of Persistent Local Storage
+Titles are allowed to use up to 4GB of Persistent Local Storage. If they require more an exception is required.
+ 
+* Report a FAILURE if the output package contains non-contiguous blocks
+If anti-virus software or indexing software is running on the PC being used to build the package, then is it is possible to end up with non-contiguous blocks in the package which can result in content update issues at a later date. Submission validator now detects these types of issues and reports a failure.
+
+
+--------------------------------------
+Version 6.2.11250.0 (6/6/2014)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Add validation for new mx:GpuAvailability feature in AppXManifest.xml
+* Provide an offline fallback mode when Submission Validator cannot access version information via HTTP port 80
+* Improve validation of Microsoft component DLLs for Shared resource applications 
+* Report a WARNING rather than a FAILURE in the case of an unversioned microsoft.xbox.gamechat.dll
+* Report a WARNING rather than a FAILURE in the case of a deprecated version of Microsoft XDK/ADK component DLL
+* Correct an issue with the handling of some absolute paths in the layout XML file
+* Correct an issue where Submission Validator was incorrectly checking for GameOS for DLC packages
+
+* Add validation for new mx:GpuAvailability feature in AppXManifest.xml
+If the new mx:GpuAvailabilty element is present in the AppXManifest.xml, it will be validated to only contain an appropriate value. 
+
+* Provide an offline fallback mode when Submission Validator cannot access version information via HTTP port 80
+If the version checking information cannot be accessed when Submission Validator is running because there is no access to HTTP port 80, the log will contain this warning
+	<warning>Could not validate MS component versions against online approved library list. 
+	Using offline fallback version check.</warning>
+The fallback version check information will not necessarily be as up to date as the online information, but it is often adequate and allows those with build infrastructure policies blocking internet access to prepare products for submission. 
+
+* Improve validation of Microsoft component DLLs for Shared resource applications 
+In previous releases the validation of Microsoft component DLLs for Shared resource applications was less complete that the same checks applied to Exclusive resource applications. This has been corrected. 
+
+* Report a WARNING rather than a FAILURE in the case of an unversioned microsoft.xbox.gamechat.dll
+Some partners using early Xbox One development kits were provided special releases of the Microsoft.Xbox.GameChat.dll that were not version stamped. This led to failures being flagged by Submission Validator. This DLL now has special handling that results in a warning if it does not have a version number. Other Microsoft component DLLs without versions will still be failures. (Note that the copies of the GameChat DLL that ship in the XDK and ADK do have correct version stamps.)
+
+* Report a WARNING rather than a FAILURE in the case of a deprecated version of Microsoft XDK/ADK component DLL
+If a component is from an ADK or XDK that has been deprecated, it can still continue to be used in updates to titles that originally shipped on that ADK or XDK. Therefore, this message has been corrected to be a warning rather than a failure. 
+
+* Correct an issue with the handling of some absolute paths in the layout XML file
+In some instances, the way paths were specified in the layout XML was leading to errors in the Submission Validator which blocked the tool from running. This has been corrected. 
+Additionally, in instances where a directory or file referenced in the layout XML file did not exist or was otherwise unable to be read (as with a file system permissions problem) there would be errors that would prevent a successful Submission Validator run. This has been corrected. 
+
+* Correct an issue where Submission Validator was incorrectly checking for GameOS for DLC packages
+Submission Validator was incorrectly checking for the GameOS for DLC packages. 
+
+Note: For users of the June 2014 (and later) XDK and ADK, you can now cause Submission Validator to perform its checks without fully packaging the application. This is done by using the "MakePkg Validate" command rather than the "MakePkg Pack" command. MakePkg Validate uses the same parameters as MakePkg Pack.
+
+
+--------------------------------------
+Version 6.2.10932.0 (4/23/2014)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* Fixed issue with the previous release (6.2.10812.0) not working correctly when used with pre-April 2014 ADK/XDK installations.
+* Fixed issue listed as a "Known Issue" in the previous release (6.2.10812.0) where Submission Validator did not produce a complete log in cases where the machine on which is running cannot access the online version information.
+Note: When used with April 2014 or later ADK/XDK, Submission Validator no longer required to set the environment variables XDK_CERT_LAYOUT and XDK_CERT_GAMEOS before running Submission Validator. HOWEVER, partners using a pre-April 2014 ADK/XDK will still need to set those environment variables to get complete results from Submission Validator. The release notes for the previous release incorrectly stated the environment variables were no longer required without making the distinction for users of older ADK/XDK releases. 
+
+
+--------------------------------------
+Version 6.2.10812.0 (4/14/2014)
+--------------------------------------
+This release of Submission Validator includes the following changes:
+* No longer required to set the environment variables XDK_CERT_LAYOUT and XDK_CERT_GAMEOS before running Submission Validator
+* Submission Validator now uses online information to check its own version, as well as versions of the GameOS and other Microsoft components in the package
+* New check for ConnectedStorage quota limit changes
+* New check for mixed EXEs/DLLs in the same chunk as other files
+
+* It's no longer necessary to set the environment variables XDK_CERT_LAYOUT and XDK_CERT_GAMEOS before running MakePkg.exe (which in turn calls Submission Validator). These environment variables previously had to be set to point to the chunk layout XML file and the GameOS file, respectively. Submission Validator now takes these values from the MakePkg.exe command line arguments that the user was already supplying. 
+
+* Submission Validator will now access a version information file online when it runs. This information is accessed via HTTP. It uses the information in this file to perform two types of checks: 
+   * It will now check to ensure that the version installed is the most current and correct version. If it is not, there will be a failure logged in in the Submission Validator output log, and that failure message will contain a link to download the correct version. 
+      <component>Available Version Check</component>
+      <failure>A required update to Submission Validator is available. XDK users must download from 
+	http://go.microsoft.com/fwlink/?LinkId=393356. ADK users must download from http://go.microsoft.com
+	/fwlink/?LinkId=393357. Download and install the update, then rebuild the package. Contact your 
+	Developer Account Manager for assistance.</failure>
+   * It will also use this online information to check that the GameOS (for exclusive titles) and any optional components from the XDK are from the same release of the XDK and that they are an approved version for use in released titles. If the version is not on the approved or deprecated list, a failure will be included in the validator log.
+	<failure>The GameOS included in this package is not an approved version. Use only 
+	supported GameOS versions according to the Approved Libraries page on the Developer 
+	Network Portal</failure>
+If the version is found to on the deprecated list, a warning will be included in the validator log indicating that this is only valid for content updates for titles originally released on that deprecated version. 
+	<warning>The GameOS included in this package is not approved for new title submissions. 
+	This version is allowed only for Content Updates where the original release used this 
+	version. Use only supported GameOS versions according to the Approved Libraries page on 
+	the Developer Network Portal</warning>
+If the versions of the components don't match each other, or if the version is not on the approved or deprecated lists, then a failure will be logged, such as this example: 
+	<failure>The GameOS version does not match the version of other Microsoft components 
+	included in this package. Use only components from the same XDK release. Refer to the 
+	Approved Libraries page on the Developer Network Portal</failure>
+KNOWN ISSUE: there is a known issue that may prevent Submission Validator from completing its validation checks if the computer on which it is running cannot access the HTTP location - such as if the PC has no internet access, is blocked by a firewall or has no network connectivity at all. This will be corrected in a future update of Submission Validator. 
+
+* There is a new check related to the mx:ConnectedStorage element in the AppXManifest checks. If this element appears in the manifest and includes a change in the connected storage quota limit, the following warning will appear in the log: 
+    mx:ConnectedStorage element specifies a change in connected storage quota limit. This requires a certification exception. 
+    Contact your Developer Account Manager
+
+* There is a new check to remind title developers to separate their executable (EXE and DLL) components from their other files (assets, etc.) in their chunk layout. This corresponds to the newly identified best practice to minmimize download sizes for future updates. When this situation is detected, a warning like the following will appear in the Submission Validator log file. 
+      <component>Mismatched Chunk Contents Check</component>
+      <warning>Chunk 1000 contains a mixture of files with executable data and files without executable data.  
+	To optimize for future Content Updates to executables, you are advised to place files with executable 
+	content into their own chunks.  If you are packaging an update to an existing title, ignore this warning 
+	for any chunks which you are not adding/modifying in this update.</warning>

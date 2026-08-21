@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="Package" xmlns="" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+
+  <!--CUSTOM TYPES-->
+  <xs:simpleType name="CT_SubsetName">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="20" />
+    </xs:restriction>
+  </xs:simpleType>
+  <!--PACKAGE SCHEMA-->
+  <xs:element name="Packages">
+    <xs:complexType>
+      <xs:choice minOccurs="1" maxOccurs="unbounded">
+        <xs:element name="Package">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Include" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="ChunkId" type="xs:string"/>
+                  <xs:attribute name="Languages" type="xs:string"/>
+                  <xs:attribute name="Devices" type="xs:string"/>
+                  <xs:attribute name="ContentTypes" type="xs:string" />
+                  <xs:attribute name="Tags" type="xs:string" />
+                  <xs:attribute name="Disc" type="xs:integer" />
+                  <xs:attribute name="Features" type="xs:string" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="Exclude" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="ChunkId" type="xs:string"/>
+                  <xs:attribute name="Languages" type="xs:string"/>
+                  <xs:attribute name="Devices" type="xs:string"/>
+                  <xs:attribute name="ContentTypes" type="xs:string" />
+                  <xs:attribute name="Tags" type="xs:string" />
+                  <xs:attribute name="Features" type="xs:string" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="Name" type="CT_SubsetName" use="required"/>
+            <xs:attribute name="Description" type="xs:string" use="optional"/>
+            <xs:attribute name="Source" type="xs:string" use="optional"/>
+            <xs:attribute name="MaxDiscs" type="xs:string" use="optional"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:choice>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

@@ -1,0 +1,6 @@
+Package: ms-gdk
+Version: 2604.3.7874
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 7b2d043557f355386f13728cf8c73543ab569ed11afb2d58cc1a0794f9a3dac2
+Description: Microsoft Game Development Kit (GDK)

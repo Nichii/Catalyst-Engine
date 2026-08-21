@@ -1,0 +1,7 @@
+Package: gameinput
+Version: 3.4.218
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 4788b9f6de634897f4f04707686a874823137f147ed67900e75d33d871288996
+Description: GameInput
