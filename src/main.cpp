@@ -66,6 +66,12 @@ int WINAPI WinMain(
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+        else
+        {
+			renderer.BeginFrame();
+			// Rendering code goes here
+			renderer.EndFrame();
+        }
     }
 
     return 0;
