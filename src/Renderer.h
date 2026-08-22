@@ -4,6 +4,8 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
+#include <cstring>
+#include <d3dcompiler.h>
 
 class Renderer
 {
@@ -30,4 +32,18 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator;
 	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_commandList;
 	Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView{};
+
+	Microsoft::WRL::ComPtr<ID3DBlob> m_vertexShader;
+	Microsoft::WRL::ComPtr<ID3DBlob> m_pixelShader;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rootSignature;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pipelineState;
+};
+
+struct Vertex
+{
+	float position[3];
+	float color[3];
 };

@@ -13,6 +13,15 @@ add_executable(CatalystEngine WIN32
     src/Main.cpp
     src/Renderer.cpp
     src/Renderer.h
+    shaders/Triangle.hlsl
+)
+
+add_custom_command(TARGET CatalystEngine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:CatalystEngine>/shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl"
+        "$<TARGET_FILE_DIR:CatalystEngine>/shaders/Triangle.hlsl"
 )
 
 target_compile_definitions(CatalystEngine
@@ -27,6 +36,7 @@ target_link_libraries(CatalystEngine
     PRIVATE
         d3d12.lib
         dxgi.lib
+        d3dcompiler.lib
 )
 
 if (MSVC)
