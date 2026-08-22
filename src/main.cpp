@@ -5,8 +5,6 @@
 
 #include "Renderer.h"
 
-using Microsoft::WRL::ComPtr;
-
 LRESULT CALLBACK WindowProc(
     HWND hwnd,
     UINT msg,
@@ -69,7 +67,7 @@ int WINAPI WinMain(
         else
         {
 			renderer.BeginFrame();
-			// Rendering code goes here
+            renderer.Render();
 			renderer.EndFrame();
         }
     }
