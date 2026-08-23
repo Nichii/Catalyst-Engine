@@ -33,6 +33,9 @@ void Renderer::Initialize(HWND hwnd)
 	CreateObjectSRV();
 	CreateRootSignature();
 	CreatePipelineState();
+
+	CreateCullingRootSignature();
+	CreateCullingPipeline();
 }
 
 void Renderer::WaitForPreviousFrame()
@@ -149,6 +152,16 @@ void Renderer::EndFrame()
 		throw std::runtime_error("Failed to present swap chain!");
 	
 	WaitForPreviousFrame();
+
+	void* mappedData = nullptr;
+
+	D3D12_RANGE readRange{};
+	readRange.Begin = 0;
+	readRange.End = sizeof(uint32_t) * ObjectCount;
+
+	hr = m_visibilityReadbackBuffer->Map(0, &readRange, &mappedData);
+
+	uint32_t* visibility = static_cast<uint32_t*>(mappedData);
 
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
@@ -461,8 +474,8 @@ void Renderer::CreateObjectBuffer()
 	{
 		ObjectData object{};
 
-		uint32_t x = (i % 32 - 16) * 0.75f;
-		uint32_t y = (i / 32 - 16) * 0.75f;
+		float x = (i % 32 - 16) * 0.75f;
+		float y = (i / (float)32 - 16) * 0.75f;
 
 		// World transform
 		DirectX::XMMATRIX world = DirectX::XMMatrixTranslation(x, y, 0.0f);
@@ -528,12 +541,13 @@ void Renderer::CreateVisibleObjectBuffer()
 	bufferDesc.MipLevels = 1;
 	bufferDesc.SampleDesc.Count = 1;
 	bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	bufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
 	HRESULT hr = m_device->CreateCommittedResource(
 		&heapProperties,
 		D3D12_HEAP_FLAG_NONE,
 		&bufferDesc,
-		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+		D3D12_RESOURCE_STATE_COMMON,
 		nullptr,
 		IID_PPV_ARGS(&m_visibleObjectBuffer)
 	);
@@ -768,6 +782,144 @@ void Renderer::CreatePipelineState()
 	}
 }
 
+void Renderer::CreateCullingRootSignature()
+{
+	D3D12_ROOT_PARAMETER rootParameters[3]{};
+
+	// Parameter 0: Camera CBV (b0)
+	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[0].Descriptor.ShaderRegister = 0;
+	rootParameters[0].Descriptor.RegisterSpace = 0;
+	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+	// Parameter 1: Object SRV (t0)
+	D3D12_DESCRIPTOR_RANGE objectRange{};
+	objectRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	objectRange.NumDescriptors = 1;
+	objectRange.BaseShaderRegister = 0;
+	objectRange.RegisterSpace = 0;
+	objectRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
+	rootParameters[1].DescriptorTable.pDescriptorRanges = &objectRange;
+	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+	// Parameter 2: Visibility UAV (u0)
+	D3D12_DESCRIPTOR_RANGE visibilityRange{};
+	visibilityRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+	visibilityRange.NumDescriptors = 1;
+	visibilityRange.BaseShaderRegister = 0;
+	visibilityRange.RegisterSpace = 0;
+	visibilityRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+	rootParameters[2].DescriptorTable.pDescriptorRanges = &visibilityRange;
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
+	rootSignatureDesc.NumParameters = 3;
+	rootSignatureDesc.pParameters = rootParameters;
+	rootSignatureDesc.NumStaticSamplers = 0;
+	rootSignatureDesc.pStaticSamplers = nullptr;
+	rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+	Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+
+	HRESULT hr = D3D12SerializeRootSignature(
+		&rootSignatureDesc,
+		D3D_ROOT_SIGNATURE_VERSION_1,
+		&signatureBlob,
+		&errorBlob
+	);
+
+	if (FAILED(hr))
+	{
+		if (errorBlob)
+		{
+			OutputDebugStringA(static_cast<const char*>(errorBlob->GetBufferPointer()));
+		}
+
+		throw std::runtime_error("Failed to serialize culling root signature");
+	}
+
+	hr = m_device->CreateRootSignature(
+		0,
+		signatureBlob->GetBufferPointer(),
+		signatureBlob->GetBufferSize(),
+		IID_PPV_ARGS(&m_cullingRootSignature)
+	);
+
+	if (FAILED(hr))
+		throw std::runtime_error("Failed to create culling root signature");
+
+	assert(m_cullingRootSignature);
+
+	// Create visibility readback buffer
+	D3D12_HEAP_PROPERTIES heapProps{};
+	heapProps.Type = D3D12_HEAP_TYPE_READBACK;
+
+	D3D12_RESOURCE_DESC bufferDesc{};
+	bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	bufferDesc.Width = sizeof(uint32_t) * ObjectCount;
+	bufferDesc.Height = 1;
+	bufferDesc.DepthOrArraySize = 1;
+	bufferDesc.MipLevels = 1;
+	bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+	bufferDesc.SampleDesc.Count = 1;
+	bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	hr = m_device->CreateCommittedResource(
+		&heapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&bufferDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&m_visibilityReadbackBuffer));
+
+	if (FAILED(hr))
+	{
+		throw std::runtime_error(
+			"Failed to create visibility readback buffer");
+	}
+
+	assert(m_visibilityReadbackBuffer);
+}
+
+void Renderer::CreateCullingPipeline()
+{
+	// Load/compile Culling.hlsl first
+	HRESULT hr = D3DCompileFromFile(
+		L"shaders/Culling.hlsl",
+		nullptr,
+		D3D_COMPILE_STANDARD_FILE_INCLUDE,
+		"CSMain",
+		"cs_5_0",
+		D3DCOMPILE_ENABLE_STRICTNESS,
+		0,
+		&m_cullingShader,
+		nullptr
+	);
+
+	if (FAILED(hr))
+		throw std::runtime_error("Failed to compile compute shader!");
+
+	D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+	desc.pRootSignature = m_cullingRootSignature.Get();
+	desc.CS.pShaderBytecode = m_cullingShader->GetBufferPointer();
+	desc.CS.BytecodeLength = m_cullingShader->GetBufferSize();
+
+	hr = m_device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&m_cullingPipelineState));
+
+	if (FAILED(hr))
+		throw std::runtime_error("Create compute pipeline state failed");
+
+	assert(m_cullingPipelineState);
+}
+
 void Renderer::DispatchCulling()
 {
 	m_commandList->SetComputeRootSignature(m_cullingRootSignature.Get());
@@ -795,12 +947,53 @@ void Renderer::DispatchCulling()
 
 	m_commandList->SetPipelineState(m_cullingPipelineState.Get());
 
+	// Transition visible object buffer to UAV
+	D3D12_RESOURCE_BARRIER barrierCommonToUAV{};
+	barrierCommonToUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barrierCommonToUAV.Transition.pResource = m_visibleObjectBuffer.Get();
+	barrierCommonToUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+	barrierCommonToUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+	barrierCommonToUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+	m_commandList->ResourceBarrier(1, &barrierCommonToUAV);
+
 	m_commandList->Dispatch((ObjectCount + 63) / 64, 1, 1);
 
 	// Compute -> Graphics barrier
-	D3D12_RESOURCE_BARRIER barrier{};
-	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-	barrier.UAV.pResource = m_visibleObjectBuffer.Get();
+	D3D12_RESOURCE_BARRIER barrierUAV{};
+	barrierUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	barrierUAV.UAV.pResource = m_visibleObjectBuffer.Get();
 
-	m_commandList->ResourceBarrier(1, &barrier);
+	m_commandList->ResourceBarrier(1, &barrierUAV);
+
+	// Transition visibility buffer
+	D3D12_RESOURCE_BARRIER toCopy{};
+	toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	toCopy.Transition.pResource = m_visibleObjectBuffer.Get();
+	toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+	toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+	toCopy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+	m_commandList->ResourceBarrier(1, &toCopy);
+
+	assert(m_visibilityReadbackBuffer);
+	assert(m_visibleObjectBuffer);
+
+	if (!m_visibilityReadbackBuffer)
+		throw std::runtime_error("Readback buffer is NULL");
+
+	if (!m_visibleObjectBuffer)
+		throw std::runtime_error("Visibility buffer is NULL");
+
+	m_commandList->CopyResource(m_visibilityReadbackBuffer.Get(), m_visibleObjectBuffer.Get());
+
+	// Transition it back to UAV
+	D3D12_RESOURCE_BARRIER backtoUAV{};
+	backtoUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	backtoUAV.Transition.pResource = m_visibleObjectBuffer.Get();
+	backtoUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+	backtoUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+	backtoUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+	m_commandList->ResourceBarrier(1, &backtoUAV);
 }

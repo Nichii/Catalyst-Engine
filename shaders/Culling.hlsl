@@ -17,9 +17,22 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 {
     uint objectID = id.x;
     
-    if (objectID >= 1000)
-        return;
-    
-    // Temporary
-    VisibleObjects[objectID] = 1;
+    ObjectData object = Objects[objectID];
+
+    float3 center = object.bounds.xyz;
+    float radius = object.bounds.w;
+
+    float4 clipPosition =
+        mul(float4(center, 1.0f), ViewProjection);
+
+    bool visible =
+        clipPosition.x >= -clipPosition.w - radius &&
+        clipPosition.x <= clipPosition.w + radius &&
+        clipPosition.y >= -clipPosition.w - radius &&
+        clipPosition.y <= clipPosition.w + radius &&
+        clipPosition.z >= 0.0f &&
+        clipPosition.z <= clipPosition.w;
+
+    //VisibleObjects[objectID] = visible ? 1 : 0;
+    VisibleObjects[objectID] = objectID < 500 ? 1 : 0;
 }

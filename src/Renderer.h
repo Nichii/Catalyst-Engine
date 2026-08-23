@@ -75,7 +75,9 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_objectDataBuffer;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_visibleObjectBuffer;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_visibilityReadbackBuffer;
 
+	Microsoft::WRL::ComPtr<ID3DBlob> m_cullingShader;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_cullingRootSignature;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_cullingPipelineState;
 
@@ -97,6 +99,8 @@ private:
 	void CreateRootSignature();
 	void CreatePipelineState();
 
+	void CreateCullingRootSignature();
+	void CreateCullingPipeline();
 	void DispatchCulling();
 
 	// Temporary cube object

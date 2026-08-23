@@ -6,6 +6,7 @@ cbuffer Camera : register(b0)
 struct ObjectData
 {
     float4x4 modelMatrix;
+    float4 bounds;
 };
 
 StructuredBuffer<ObjectData> objectDataBuffer : register(t0);

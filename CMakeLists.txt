@@ -20,10 +20,10 @@ add_executable(CatalystEngine WIN32
 add_custom_command(TARGET CatalystEngine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:CatalystEngine>/shaders"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl"
         "$<TARGET_FILE_DIR:CatalystEngine>/shaders/Triangle.hlsl"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/Culling.hlsl"
         "$<TARGET_FILE_DIR:CatalystEngine>/shaders/Culling.hlsl"
 )
