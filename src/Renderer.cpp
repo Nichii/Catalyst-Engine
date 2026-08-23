@@ -26,6 +26,7 @@ void Renderer::Initialize(HWND hwnd)
 
 	CreateCameraBuffer();
 	CreateObjectBuffer();
+	CreateVisibleObjectBuffer();
 
 	CreateDescriptorHeap();
 	CreateCameraCBV();
@@ -97,10 +98,12 @@ void Renderer::BeginFrame()
 
 void Renderer::Render()
 {
+	DispatchCulling();
+
 	// Set the root signature, pipeline state, and draw the triangle
 	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
-	ID3D12DescriptorHeap* descriptorHeaps[] = { m_srvheap.Get() };
+	ID3D12DescriptorHeap* descriptorHeaps[] = { m_srvHeap.Get() };
 
 	m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -108,7 +111,7 @@ void Renderer::Render()
 	m_commandList->SetGraphicsRootConstantBufferView(0, m_cameraBuffer->GetGPUVirtualAddress());
 
 	// Get descriptor 1 (object buffer SRV)
-	D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_srvheap->GetGPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 	gpuHandle.ptr += m_srvDescriptorSize;
 
 	// Bind object buffer SRV (root parameter 1)
@@ -456,16 +459,20 @@ void Renderer::CreateObjectBuffer()
 
 	for (uint32_t i = 0; i < ObjectCount; ++i)
 	{
-		uint32_t x = i % 32;
-		uint32_t y = i / 32;
+		ObjectData object{};
 
-		DirectX::XMMATRIX translation = DirectX::XMMatrixTranslation
-		(
-			(x - 16.0f) * 1.5f,
-			(y - 16.0f) * 1.5f,
-			0.0f
-		);
-		DirectX::XMStoreFloat4x4(&objects[i].modelMatrix, DirectX::XMMatrixTranspose(translation));
+		uint32_t x = (i % 32 - 16) * 0.75f;
+		uint32_t y = (i / 32 - 16) * 0.75f;
+
+		// World transform
+		DirectX::XMMATRIX world = DirectX::XMMatrixTranslation(x, y, 0.0f);
+
+		DirectX::XMStoreFloat4x4(&object.worldMatrix, DirectX::XMMatrixTranspose(world));
+
+		// Bounding sphere
+		object.bounds = { x, y, 0.0f, 0.866f };
+
+		objects[i] = object;
 	}
 
 	D3D12_HEAP_PROPERTIES objectHeap{};
@@ -506,17 +513,46 @@ void Renderer::CreateObjectBuffer()
 	m_objectDataBuffer->Unmap(0, nullptr);
 }
 
+void Renderer::CreateVisibleObjectBuffer()
+{
+	UINT64 bufferSize = sizeof(uint32_t) * ObjectCount;
+
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+	D3D12_RESOURCE_DESC bufferDesc{};
+	bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	bufferDesc.Width = bufferSize;
+	bufferDesc.Height = 1;
+	bufferDesc.DepthOrArraySize = 1;
+	bufferDesc.MipLevels = 1;
+	bufferDesc.SampleDesc.Count = 1;
+	bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+	HRESULT hr = m_device->CreateCommittedResource(
+		&heapProperties,
+		D3D12_HEAP_FLAG_NONE,
+		&bufferDesc,
+		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+		nullptr,
+		IID_PPV_ARGS(&m_visibleObjectBuffer)
+	);
+
+	if (FAILED(hr))
+		throw std::runtime_error("Failed to create visible object buffer");
+}
+
 void Renderer::CreateDescriptorHeap()
 {
 	// Create descriptor heap for object data
 	D3D12_DESCRIPTOR_HEAP_DESC objectHeapDesc{};
-	objectHeapDesc.NumDescriptors = 2;
+	objectHeapDesc.NumDescriptors = 3;
 	objectHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	objectHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
 	HRESULT hr = m_device->CreateDescriptorHeap(
 		&objectHeapDesc,
-		IID_PPV_ARGS(&m_srvheap)
+		IID_PPV_ARGS(&m_srvHeap)
 	);
 
 	if (FAILED(hr))
@@ -532,7 +568,7 @@ void Renderer::CreateCameraCBV()
 	cbvDesc.BufferLocation = m_cameraBuffer->GetGPUVirtualAddress();
 	cbvDesc.SizeInBytes = 256;
 
-	auto cpuHandle = m_srvheap->GetCPUDescriptorHandleForHeapStart();
+	auto cpuHandle = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
 
 	m_device->CreateConstantBufferView(&cbvDesc, cpuHandle);
 }
@@ -548,11 +584,29 @@ void Renderer::CreateObjectSRV()
 	srvDesc.Buffer.StructureByteStride = sizeof(ObjectData);
 
 	// Creates SRV at descriptor 1
-	auto cpuHandle = m_srvheap->GetCPUDescriptorHandleForHeapStart();
+	auto cpuHandle = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
 	UINT descriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	cpuHandle.ptr += descriptorSize;
 
 	m_device->CreateShaderResourceView(m_objectDataBuffer.Get(), &srvDesc, cpuHandle);
+
+	// Create UAV at descriptor 2
+	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+	uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+	uavDesc.Buffer.FirstElement = 0;
+	uavDesc.Buffer.NumElements = ObjectCount;
+	uavDesc.Buffer.StructureByteStride = sizeof(uint32_t);
+	uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+
+	cpuHandle.ptr += m_srvDescriptorSize;
+
+	m_device->CreateUnorderedAccessView(
+		m_visibleObjectBuffer.Get(),
+		nullptr,
+		&uavDesc,
+		cpuHandle
+	);
 }
 
 void Renderer::CreateRootSignature()
@@ -712,4 +766,41 @@ void Renderer::CreatePipelineState()
 		throw std::runtime_error(
 			"CreateGraphicsPipelineState failed");
 	}
+}
+
+void Renderer::DispatchCulling()
+{
+	m_commandList->SetComputeRootSignature(m_cullingRootSignature.Get());
+
+	ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
+
+	m_commandList->SetDescriptorHeaps(1, heaps);
+
+	// b0 - camera
+	m_commandList->SetComputeRootConstantBufferView(0, m_cameraBuffer->GetGPUVirtualAddress());
+
+	// t0 - object buffer
+	D3D12_GPU_DESCRIPTOR_HANDLE objectHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+
+	objectHandle.ptr += m_srvDescriptorSize;
+
+	m_commandList->SetComputeRootDescriptorTable(1, objectHandle);
+
+	// u0 - visibility buffer
+	D3D12_GPU_DESCRIPTOR_HANDLE visibilityHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+
+	visibilityHandle.ptr += m_srvDescriptorSize * 2;
+
+	m_commandList->SetComputeRootDescriptorTable(2, visibilityHandle);
+
+	m_commandList->SetPipelineState(m_cullingPipelineState.Get());
+
+	m_commandList->Dispatch((ObjectCount + 63) / 64, 1, 1);
+
+	// Compute -> Graphics barrier
+	D3D12_RESOURCE_BARRIER barrier{};
+	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	barrier.UAV.pResource = m_visibleObjectBuffer.Get();
+
+	m_commandList->ResourceBarrier(1, &barrier);
 }

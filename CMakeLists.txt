@@ -14,6 +14,7 @@ add_executable(CatalystEngine WIN32
     src/Renderer.cpp
     src/Renderer.h
     shaders/Triangle.hlsl
+    shaders/Culling.hlsl
 )
 
 add_custom_command(TARGET CatalystEngine POST_BUILD
@@ -22,6 +23,9 @@ add_custom_command(TARGET CatalystEngine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl"
         "$<TARGET_FILE_DIR:CatalystEngine>/shaders/Triangle.hlsl"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/Culling.hlsl"
+        "$<TARGET_FILE_DIR:CatalystEngine>/shaders/Culling.hlsl"
 )
 
 target_compile_definitions(CatalystEngine

@@ -16,12 +16,18 @@ struct Vertex
 
 struct ObjectData
 {
-	DirectX::XMFLOAT4X4 modelMatrix;
+	DirectX::XMFLOAT4X4 worldMatrix;
+	DirectX::XMFLOAT4 bounds;
 };
 
 struct CameraData
 {
 	DirectX::XMFLOAT4X4 viewProjection;
+};
+
+struct VisibleObject
+{
+	uint32_t objectID;
 };
 
 class Renderer
@@ -61,13 +67,17 @@ private:
 	Microsoft::WRL::ComPtr<ID3DBlob> m_vertexShader;
 	Microsoft::WRL::ComPtr<ID3DBlob> m_pixelShader;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rootSignature;
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvheap;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pipelineState;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_indexBuffer;
 	D3D12_INDEX_BUFFER_VIEW m_indexBufferView{};
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_objectDataBuffer;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_visibleObjectBuffer;
+
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_cullingRootSignature;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_cullingPipelineState;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_cameraBuffer;
 	CameraData m_cameraData{};
@@ -79,12 +89,15 @@ private:
 
 	void CreateCameraBuffer();
 	void CreateObjectBuffer();
+	void CreateVisibleObjectBuffer();
 
 	void CreateDescriptorHeap();
 	void CreateCameraCBV();
 	void CreateObjectSRV();
 	void CreateRootSignature();
 	void CreatePipelineState();
+
+	void DispatchCulling();
 
 	// Temporary cube object
 	// Create cube vertices
