@@ -1,7 +1,9 @@
 cbuffer Camera : register(b0)
 {
-    float4x4 ViewProjection;
+    float4x4 viewProjection;
 };
+
+static const uint ObjectCount = 1000;
 
 struct ObjectData
 {
@@ -9,21 +11,26 @@ struct ObjectData
     float4 bounds;
 };
 
-StructuredBuffer<ObjectData> Objects : register(t0);
-RWStructuredBuffer<uint> VisibleObjects : register(u0);
+StructuredBuffer<ObjectData> objects : register(t0);
+RWStructuredBuffer<uint> visibleObjects : register(u0);
 
 [numthreads(64, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
     uint objectID = id.x;
-    
-    ObjectData object = Objects[objectID];
+
+    if (objectID >= ObjectCount)
+    {
+        return;
+    }
+
+    ObjectData object = objects[objectID];
 
     float3 center = object.bounds.xyz;
     float radius = object.bounds.w;
 
     float4 clipPosition =
-        mul(float4(center, 1.0f), ViewProjection);
+        mul(float4(center, 1.0f), viewProjection);
 
     bool visible =
         clipPosition.x >= -clipPosition.w - radius &&
@@ -33,6 +40,5 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         clipPosition.z >= 0.0f &&
         clipPosition.z <= clipPosition.w;
 
-    //VisibleObjects[objectID] = visible ? 1 : 0;
-    VisibleObjects[objectID] = objectID < 500 ? 1 : 0;
+    visibleObjects[objectID] = visible ? 1 : 0;
 }

@@ -1,9 +1,22 @@
 #include "Renderer.h"
+#include "Dx12Utils.h"
 
 #include <stdexcept>
 
+Renderer::~Renderer()
+{
+	if (m_fenceEvent)
+	{
+		CloseHandle(m_fenceEvent);
+		m_fenceEvent = nullptr;
+	}
+}
+
 void Renderer::Initialize(HWND hwnd)
 {
+	if (!hwnd)
+		throw std::invalid_argument("Renderer requires a valid window handle");
+
 	UINT flags = 0;
 
 #ifdef _DEBUG
@@ -44,15 +57,13 @@ void Renderer::WaitForPreviousFrame()
 
 	HRESULT hr = m_commandQueue->Signal(m_fence.Get(), fenceToWaitFor);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to signal fence!");
+	ThrowIfFailed(hr, "Signal fence");
 
 	if (m_fence->GetCompletedValue() < fenceToWaitFor)
 	{
 		hr = m_fence->SetEventOnCompletion(fenceToWaitFor, m_fenceEvent);
 
-		if (FAILED(hr))
-			throw std::runtime_error("Failed to set fence event!");
+		ThrowIfFailed(hr, "Set fence event");
 
 		WaitForSingleObject(m_fenceEvent, INFINITE);
 	}
@@ -62,12 +73,10 @@ void Renderer::BeginFrame()
 {
 	// Reset command allocator and command list for the current frame
 	HRESULT hr = m_commandAllocator->Reset();
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to reset command allocator!");
+	ThrowIfFailed(hr, "Reset command allocator");
 
 	hr = m_commandList->Reset(m_commandAllocator.Get(), nullptr);
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to reset command list!");
+	ThrowIfFailed(hr, "Reset command list");
 
 	// Transition the render target to the render target state
 	D3D12_RESOURCE_BARRIER barrier{};
@@ -87,12 +96,12 @@ void Renderer::BeginFrame()
 
 	// Set the viewport and scissor rectangle used for rasterization.
 	D3D12_VIEWPORT viewport{};
-	viewport.Width = 1280.0f;
-	viewport.Height = 720.0f;
+	viewport.Width = static_cast<float>(defaultWidth);
+	viewport.Height = static_cast<float>(defaultHeight);
 	viewport.MaxDepth = 1.0f;
 	m_commandList->RSSetViewports(1, &viewport);
 
-	D3D12_RECT scissorRect{ 0, 0, 1280, 720 };
+	D3D12_RECT scissorRect{ 0L, 0L, static_cast<LONG>(defaultWidth), static_cast<LONG>(defaultHeight) };
 	m_commandList->RSSetScissorRects(1, &scissorRect);
 
 	// Clear the render target
@@ -103,7 +112,7 @@ void Renderer::Render()
 {
 	DispatchCulling();
 
-	// Set the root signature, pipeline state, and draw the triangle
+	// Set the root signature, pipeline state, and draw visible cube instances.
 	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
 	ID3D12DescriptorHeap* descriptorHeaps[] = { m_srvHeap.Get() };
@@ -119,6 +128,10 @@ void Renderer::Render()
 
 	// Bind object buffer SRV (root parameter 1)
 	m_commandList->SetGraphicsRootDescriptorTable(1, gpuHandle);
+
+	// Bind GPU visibility mask SRV (root parameter 2)
+	gpuHandle.ptr += m_srvDescriptorSize;
+	m_commandList->SetGraphicsRootDescriptorTable(2, gpuHandle);
 
 	m_commandList->SetPipelineState(m_pipelineState.Get());
 	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -139,8 +152,7 @@ void Renderer::EndFrame()
 	m_commandList->ResourceBarrier(1, &barrier);
 
 	HRESULT hr = m_commandList->Close();
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to close command list!");
+	ThrowIfFailed(hr, "Close command list");
 
 	ID3D12CommandList* commandLists[] = { m_commandList.Get() };
 
@@ -148,20 +160,24 @@ void Renderer::EndFrame()
 
 	hr = m_swapChain->Present(1, 0);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to present swap chain!");
+	ThrowIfFailed(hr, "Present swap chain");
 	
 	WaitForPreviousFrame();
 
+	D3D12_RANGE readRange{ 0, sizeof(uint32_t) * ObjectCount };
+
 	void* mappedData = nullptr;
-
-	D3D12_RANGE readRange{};
-	readRange.Begin = 0;
-	readRange.End = sizeof(uint32_t) * ObjectCount;
-
 	hr = m_visibilityReadbackBuffer->Map(0, &readRange, &mappedData);
 
-	uint32_t* visibility = static_cast<uint32_t*>(mappedData);
+	ThrowIfFailed(hr, "Failed to map visibility readback buffer!");
+
+	const uint32_t* visibility = static_cast<const uint32_t*>(mappedData);
+	m_visibleObjectCount = 0;
+	for (uint32_t i = 0; i < ObjectCount; ++i)
+		m_visibleObjectCount += visibility[i] != 0 ? 1u : 0u;
+
+	D3D12_RANGE writtenRange{ 0, 0 };
+	m_visibilityReadbackBuffer->Unmap(0, &writtenRange);
 
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
@@ -171,8 +187,7 @@ void Renderer::CreateDevice(UINT flags)
 	// Create DXGI Factory
 	HRESULT hr = CreateDXGIFactory2(flags, IID_PPV_ARGS(&m_factory));
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create DXGI Factory!");
+	ThrowIfFailed(hr, "Create DXGI factory");
 
 	hr = D3D12CreateDevice(
 		nullptr,
@@ -180,8 +195,7 @@ void Renderer::CreateDevice(UINT flags)
 		IID_PPV_ARGS(&m_device)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create D3D12 Device!");
+	ThrowIfFailed(hr, "Create D3D12 device");
 }
 
 void Renderer::CreateSwapChain(HWND hwnd)
@@ -195,14 +209,13 @@ void Renderer::CreateSwapChain(HWND hwnd)
 		IID_PPV_ARGS(&m_commandQueue)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create command queue!");
+	ThrowIfFailed(hr, "Create command queue");
 
 	// Create swap chain
 	DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
 	swapChainDesc.BufferCount = bufferCount;
-	swapChainDesc.Width = 1280;
-	swapChainDesc.Height = 720;
+	swapChainDesc.Width = defaultWidth;
+	swapChainDesc.Height = defaultHeight;
 	swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -219,8 +232,7 @@ void Renderer::CreateSwapChain(HWND hwnd)
 		&swapChain
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create swap chain!");
+	ThrowIfFailed(hr, "Create swap chain");
 
 	swapChain.As(&m_swapChain);
 }
@@ -233,8 +245,7 @@ void Renderer::CreateCommandObjects()
 		IID_PPV_ARGS(&m_commandAllocator)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create command allocator!");
+	ThrowIfFailed(hr, "Create command allocator");
 
 	hr = m_device->CreateCommandList(
 		0,
@@ -244,8 +255,7 @@ void Renderer::CreateCommandObjects()
 		IID_PPV_ARGS(&m_commandList)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create graphics command list!");
+	ThrowIfFailed(hr, "Create graphics command list");
 
 	// Close the command list as it will be reset before recording commands
 	m_commandList->Close();
@@ -262,8 +272,7 @@ void Renderer::CreateRenderTargets()
 		&rtvHeapDesc,
 		IID_PPV_ARGS(&m_rtvHeap));
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create RTV descriptor heap!");
+	ThrowIfFailed(hr, "Create RTV descriptor heap");
 
 	m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
@@ -273,8 +282,7 @@ void Renderer::CreateRenderTargets()
 	{
 		hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]));
 
-		if (FAILED(hr))
-			throw std::runtime_error("Failed to get swap chain buffer!");
+		ThrowIfFailed(hr, "Failed to get swap chain buffer!");
 
 		m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
 		rtvHandle.ptr += m_rtvDescriptorSize;
@@ -283,13 +291,11 @@ void Renderer::CreateRenderTargets()
 	// Create fence and fence event
 	hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence));
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create fence!");
+	ThrowIfFailed(hr, "Failed to create fence!");
 
 	m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
-	if (!m_fenceEvent)
-		throw std::runtime_error("Failed to create fence event!");
+	ThrowIfFailed(hr, "Failed to create fence event!");
 }
 
 void Renderer::CreateCameraBuffer()
@@ -304,7 +310,7 @@ void Renderer::CreateCameraBuffer()
 	DirectX::XMMATRIX projection = DirectX::XMMatrixPerspectiveFovLH
 	(
 		DirectX::XMConvertToRadians(60.0f),
-		1280.0f / 720.0f,
+		static_cast<float>(defaultWidth) / static_cast<float>(defaultHeight),
 		0.1f,
 		1000.0f
 	);
@@ -337,8 +343,7 @@ void Renderer::CreateCameraBuffer()
 		IID_PPV_ARGS(&m_cameraBuffer)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Create camera buffer failed");
+	ThrowIfFailed(hr, "Create camera buffer failed");
 
 	// Upload the camera
 	void* mappedData = nullptr;
@@ -347,8 +352,7 @@ void Renderer::CreateCameraBuffer()
 
 	hr = m_cameraBuffer->Map(0, &readRange, &mappedData);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Map camera buffer failed");
+	ThrowIfFailed(hr, "Map camera buffer failed");
 
 	memcpy(mappedData, &m_cameraData, sizeof(CameraData));
 
@@ -385,8 +389,7 @@ void Renderer::CreateObjectBuffer()
 		IID_PPV_ARGS(&m_vertexBuffer)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create vertex buffer!");
+	ThrowIfFailed(hr, "Failed to create vertex buffer!");
 
 	// Copy vertex data to the buffer
 	void* mappedData = nullptr;
@@ -395,8 +398,7 @@ void Renderer::CreateObjectBuffer()
 
 	hr = m_vertexBuffer->Map(0, &readRange, &mappedData);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to map vertex buffer!");
+	ThrowIfFailed(hr, "Failed to map vertex buffer!");
 
 	memcpy(mappedData, vertices, vertexBufferSize);
 	m_vertexBuffer->Unmap(0, nullptr);
@@ -418,14 +420,12 @@ void Renderer::CreateObjectBuffer()
 		IID_PPV_ARGS(&m_indexBuffer)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create index buffer!");
+	ThrowIfFailed(hr, "Failed to create index buffer!");
 
 	// Copy index data to the buffer
 	hr = m_indexBuffer->Map(0, &readRange, &mappedData);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to map index buffer!");
+	ThrowIfFailed(hr, "Failed to map index buffer!");
 
 	memcpy(mappedData, indices, indexBufferSize);
 	m_indexBuffer->Unmap(0, nullptr);
@@ -448,8 +448,7 @@ void Renderer::CreateObjectBuffer()
 		nullptr
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to compile vertex shader!");
+	ThrowIfFailed(hr, "Failed to compile vertex shader!");
 
 	hr = D3DCompileFromFile(
 		L"shaders/Triangle.hlsl",
@@ -463,8 +462,7 @@ void Renderer::CreateObjectBuffer()
 		nullptr
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to compile pixel shader!");
+	ThrowIfFailed(hr, "Failed to compile pixel shader!");
 
 	// Create object data buffer
 	std::vector<ObjectData> objects;
@@ -513,8 +511,7 @@ void Renderer::CreateObjectBuffer()
 		IID_PPV_ARGS(&m_objectDataBuffer)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create object data buffer!");
+	ThrowIfFailed(hr, "Failed to create object data buffer!");
 
 	void* mappedObjectData = nullptr;
 
@@ -547,20 +544,19 @@ void Renderer::CreateVisibleObjectBuffer()
 		&heapProperties,
 		D3D12_HEAP_FLAG_NONE,
 		&bufferDesc,
-		D3D12_RESOURCE_STATE_COMMON,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
 		IID_PPV_ARGS(&m_visibleObjectBuffer)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create visible object buffer");
+	ThrowIfFailed(hr, "Failed to create visible object buffer");
 }
 
 void Renderer::CreateDescriptorHeap()
 {
 	// Create descriptor heap for object data
 	D3D12_DESCRIPTOR_HEAP_DESC objectHeapDesc{};
-	objectHeapDesc.NumDescriptors = 3;
+	objectHeapDesc.NumDescriptors = 4;
 	objectHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	objectHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
@@ -569,8 +565,7 @@ void Renderer::CreateDescriptorHeap()
 		IID_PPV_ARGS(&m_srvHeap)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create object data descriptor heap!");
+	ThrowIfFailed(hr, "Failed to create object data descriptor heap!");
 
 	m_srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
@@ -604,7 +599,17 @@ void Renderer::CreateObjectSRV()
 
 	m_device->CreateShaderResourceView(m_objectDataBuffer.Get(), &srvDesc, cpuHandle);
 
-	// Create UAV at descriptor 2
+	// Create visibility SRV at descriptor 2.
+	cpuHandle.ptr += m_srvDescriptorSize;
+	D3D12_SHADER_RESOURCE_VIEW_DESC visibilitySrvDesc{};
+	visibilitySrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	visibilitySrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	visibilitySrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	visibilitySrvDesc.Buffer.NumElements = ObjectCount;
+	visibilitySrvDesc.Buffer.StructureByteStride = sizeof(uint32_t);
+	m_device->CreateShaderResourceView(m_visibleObjectBuffer.Get(), &visibilitySrvDesc, cpuHandle);
+
+	// Create UAV at descriptor 3.
 	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
 	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
 	uavDesc.Format = DXGI_FORMAT_UNKNOWN;
@@ -647,15 +652,29 @@ void Renderer::CreateRootSignature()
 	objectParameter.DescriptorTable.pDescriptorRanges = &range;
 	objectParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
-	D3D12_ROOT_PARAMETER parameter[2] =
+	D3D12_DESCRIPTOR_RANGE visibilityRange{};
+	visibilityRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	visibilityRange.NumDescriptors = 1;
+	visibilityRange.BaseShaderRegister = 1;
+	visibilityRange.RegisterSpace = 0;
+	visibilityRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	D3D12_ROOT_PARAMETER visibilityParameter{};
+	visibilityParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	visibilityParameter.DescriptorTable.NumDescriptorRanges = 1;
+	visibilityParameter.DescriptorTable.pDescriptorRanges = &visibilityRange;
+	visibilityParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+	D3D12_ROOT_PARAMETER parameter[3] =
 	{
 		cameraParameter,
-		objectParameter
+		objectParameter,
+		visibilityParameter
 	};
 
 	// Create root signature
 	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
-	rootSignatureDesc.NumParameters = 2;
+	rootSignatureDesc.NumParameters = 3;
 	rootSignatureDesc.pParameters = parameter;
 	rootSignatureDesc.NumStaticSamplers = 0;
 	rootSignatureDesc.pStaticSamplers = nullptr;
@@ -671,18 +690,7 @@ void Renderer::CreateRootSignature()
 		&error
 	);
 
-	if (FAILED(hr))
-	{
-		if (error)
-		{
-			std::string errorMessage(static_cast<const char*>(error->GetBufferPointer()), error->GetBufferSize());
-			throw std::runtime_error("Failed to serialize root signature: " + errorMessage);
-		}
-		else
-		{
-			throw std::runtime_error("Failed to serialize root signature!");
-		}
-	}
+	ThrowIfFailedDetailed(hr, error, "Failed to serialize root signature!");
 
 	hr = m_device->CreateRootSignature(
 		0,
@@ -691,18 +699,7 @@ void Renderer::CreateRootSignature()
 		IID_PPV_ARGS(&m_rootSignature)
 	);
 
-	if (FAILED(hr))
-	{
-		if (error)
-		{
-			std::string errorMessage(static_cast<const char*>(error->GetBufferPointer()), error->GetBufferSize());
-			throw std::runtime_error("Failed to create root signature: " + errorMessage);
-		}
-		else
-		{
-			throw std::runtime_error("Failed to create root signature!");
-		}
-	}
+	ThrowIfFailed(hr, "Failed to create root signature!");
 }
 
 void Renderer::CreatePipelineState()
@@ -766,20 +763,7 @@ void Renderer::CreatePipelineState()
 	// Create the graphics pipeline state object (PSO)
 	HRESULT hr = m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
 
-	if (FAILED(hr))
-	{
-		char buffer[256];
-
-		sprintf_s(
-			buffer,
-			"CreateGraphicsPipelineState failed: 0x%08X\n",
-			static_cast<unsigned>(hr));
-
-		OutputDebugStringA(buffer);
-
-		throw std::runtime_error(
-			"CreateGraphicsPipelineState failed");
-	}
+	ThrowIfFailed(hr, "Failed to create graphics pipeline state!");
 }
 
 void Renderer::CreateCullingRootSignature()
@@ -835,15 +819,7 @@ void Renderer::CreateCullingRootSignature()
 		&errorBlob
 	);
 
-	if (FAILED(hr))
-	{
-		if (errorBlob)
-		{
-			OutputDebugStringA(static_cast<const char*>(errorBlob->GetBufferPointer()));
-		}
-
-		throw std::runtime_error("Failed to serialize culling root signature");
-	}
+	ThrowIfFailedDetailed(hr, errorBlob, "Failed to serialize culling root signature!");
 
 	hr = m_device->CreateRootSignature(
 		0,
@@ -852,9 +828,7 @@ void Renderer::CreateCullingRootSignature()
 		IID_PPV_ARGS(&m_cullingRootSignature)
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to create culling root signature");
-
+	ThrowIfFailed(hr, "Failed to create culling root signature!");
 	assert(m_cullingRootSignature);
 
 	// Create visibility readback buffer
@@ -880,12 +854,7 @@ void Renderer::CreateCullingRootSignature()
 		nullptr,
 		IID_PPV_ARGS(&m_visibilityReadbackBuffer));
 
-	if (FAILED(hr))
-	{
-		throw std::runtime_error(
-			"Failed to create visibility readback buffer");
-	}
-
+	ThrowIfFailed(hr, "Failed to create visibility readback buffer!");
 	assert(m_visibilityReadbackBuffer);
 }
 
@@ -904,8 +873,7 @@ void Renderer::CreateCullingPipeline()
 		nullptr
 	);
 
-	if (FAILED(hr))
-		throw std::runtime_error("Failed to compile compute shader!");
+	ThrowIfFailed(hr, "Failed to compile compute shader!");
 
 	D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
 	desc.pRootSignature = m_cullingRootSignature.Get();
@@ -914,9 +882,7 @@ void Renderer::CreateCullingPipeline()
 
 	hr = m_device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&m_cullingPipelineState));
 
-	if (FAILED(hr))
-		throw std::runtime_error("Create compute pipeline state failed");
-
+	ThrowIfFailed(hr, "Create compute pipeline state failed");
 	assert(m_cullingPipelineState);
 }
 
@@ -941,7 +907,7 @@ void Renderer::DispatchCulling()
 	// u0 - visibility buffer
 	D3D12_GPU_DESCRIPTOR_HANDLE visibilityHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
-	visibilityHandle.ptr += m_srvDescriptorSize * 2;
+	visibilityHandle.ptr += m_srvDescriptorSize * 3;
 
 	m_commandList->SetComputeRootDescriptorTable(2, visibilityHandle);
 
@@ -951,13 +917,13 @@ void Renderer::DispatchCulling()
 	D3D12_RESOURCE_BARRIER barrierCommonToUAV{};
 	barrierCommonToUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrierCommonToUAV.Transition.pResource = m_visibleObjectBuffer.Get();
-	barrierCommonToUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+	barrierCommonToUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_GENERIC_READ;
 	barrierCommonToUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 	barrierCommonToUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
 	m_commandList->ResourceBarrier(1, &barrierCommonToUAV);
 
-	m_commandList->Dispatch((ObjectCount + 63) / 64, 1, 1);
+	m_commandList->Dispatch((ObjectCount + cullingThreadGroupSize - 1) / cullingThreadGroupSize, 1, 1);
 
 	// Compute -> Graphics barrier
 	D3D12_RESOURCE_BARRIER barrierUAV{};
@@ -987,13 +953,13 @@ void Renderer::DispatchCulling()
 
 	m_commandList->CopyResource(m_visibilityReadbackBuffer.Get(), m_visibleObjectBuffer.Get());
 
-	// Transition it back to UAV
-	D3D12_RESOURCE_BARRIER backtoUAV{};
-	backtoUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	backtoUAV.Transition.pResource = m_visibleObjectBuffer.Get();
-	backtoUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-	backtoUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-	backtoUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	// Leave the visibility buffer shader-readable for the graphics pass and the next frame's culling pass.
+	D3D12_RESOURCE_BARRIER backToShaderReadable{};
+	backToShaderReadable.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	backToShaderReadable.Transition.pResource = m_visibleObjectBuffer.Get();
+	backToShaderReadable.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+	backToShaderReadable.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+	backToShaderReadable.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
-	m_commandList->ResourceBarrier(1, &backtoUAV);
+	m_commandList->ResourceBarrier(1, &backToShaderReadable);
 }

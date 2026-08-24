@@ -4,7 +4,6 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
-#include <cstring>
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 #include <vector>
@@ -33,6 +32,12 @@ struct VisibleObject
 class Renderer
 {
 public:
+	static constexpr UINT defaultWidth = 1280;
+	static constexpr UINT defaultHeight = 720;
+
+	~Renderer();
+	Renderer& operator=(const Renderer&) = delete;
+
 	void Initialize(HWND hwnd);
 	void WaitForPreviousFrame();
 	void BeginFrame();
@@ -41,6 +46,7 @@ public:
 
 private:
 	static constexpr UINT bufferCount = 2;
+	static constexpr UINT cullingThreadGroupSize = 64;
 	static constexpr uint32_t ObjectCount = 1000;
 
 	static constexpr float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f }; // Temporary clear color
@@ -76,6 +82,7 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_objectDataBuffer;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_visibleObjectBuffer;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_visibilityReadbackBuffer;
+	uint32_t m_visibleObjectCount = 0;
 
 	Microsoft::WRL::ComPtr<ID3DBlob> m_cullingShader;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_cullingRootSignature;
@@ -103,8 +110,7 @@ private:
 	void CreateCullingPipeline();
 	void DispatchCulling();
 
-	// Temporary cube object
-	// Create cube vertices
+	// Unit cube geometry shared by every instance.
 	static constexpr Vertex vertices[] =
 	{
 		{ {-0.5f, -0.5f, -0.5f} },

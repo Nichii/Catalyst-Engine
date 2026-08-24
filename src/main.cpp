@@ -1,7 +1,4 @@
 #include <windows.h>
-#include <d3d12.h>
-#include <dxgi1_6.h>
-#include <wrl.h>
 
 #include "Renderer.h"
 
@@ -27,6 +24,8 @@ int WINAPI WinMain(
     LPSTR,
     int nCmdShow)
 {
+    constexpr int windowWidth = Renderer::defaultWidth;
+    constexpr int windowHeight = Renderer::defaultHeight;
     const wchar_t* className = L"CatalystWindow";
 
     WNDCLASS wc{};
@@ -43,12 +42,18 @@ int WINAPI WinMain(
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        1280,
-        720,
+        windowWidth,
+        windowHeight,
         nullptr,
         nullptr,
         hInstance,
         nullptr);
+
+    if (!hwnd)
+    {
+        MessageBox(nullptr, L"Failed to create the application window.", L"Catalyst Engine", MB_OK | MB_ICONERROR);
+        return 1;
+    }
 
     ShowWindow(hwnd, nCmdShow);
 
