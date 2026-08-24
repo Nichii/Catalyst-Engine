@@ -11,6 +11,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(CatalystEngine WIN32
     src/Main.cpp
+    src/Application.h
+    src/Application.cpp
+    src/Core/Window.h
+    src/Core/Window.cpp
     src/Renderer.cpp
     src/Renderer.h
     src/Dx12Utils.h
