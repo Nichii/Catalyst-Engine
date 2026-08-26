@@ -1,7 +1,8 @@
 #include "Renderer.h"
-#include "Dx12Utils.h"
+#include "../Core/Dx12Utils.h"
 
 #include <stdexcept>
+#include <d3dcompiler.h>
 
 Renderer::~Renderer()
 {

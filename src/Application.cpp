@@ -1,5 +1,5 @@
 #include "Application.h"
-#include "Renderer.h"
+#include "Renderer/Renderer.h"
 
 Application::Application(HINSTANCE instance)
 	: m_window(instance, windowWidth, windowHeight)

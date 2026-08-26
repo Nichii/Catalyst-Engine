@@ -15,9 +15,11 @@ add_executable(CatalystEngine WIN32
     src/Application.cpp
     src/Core/Window.h
     src/Core/Window.cpp
-    src/Renderer.cpp
-    src/Renderer.h
-    src/Dx12Utils.h
+    src/Core/Dx12Utils.h
+    src/Renderer/Renderer.h
+    src/Renderer/Renderer.cpp
+    src/Renderer/CullingPass.h
+    src/Renderer/CullingPass.cpp
     shaders/Triangle.hlsl
     shaders/Culling.hlsl
 )
