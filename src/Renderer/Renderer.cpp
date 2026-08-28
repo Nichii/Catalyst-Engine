@@ -3,9 +3,12 @@
 
 #include <stdexcept>
 #include <d3dcompiler.h>
+#include <algorithm>
+#include <format>
 
 Renderer::~Renderer()
 {
+	// COM resources release automatically, the Win32 event is the only non-COM handle owned here.
 	if (m_fenceEvent)
 	{
 		CloseHandle(m_fenceEvent);
@@ -17,7 +20,9 @@ void Renderer::Initialize(HWND hwnd)
 {
 	if (!hwnd)
 		throw std::invalid_argument("Renderer requires a valid window handle");
+	m_hwnd = hwnd;
 
+	// Turn on the DXGI debug factory in Debug builds.
 	UINT flags = 0;
 
 #ifdef _DEBUG
@@ -33,6 +38,7 @@ void Renderer::Initialize(HWND hwnd)
 	}
 #endif
 	
+	// Build things in dependency order: device, swap chain, buffers, descriptors, then PSOs.
 	CreateDevice(flags);
 	CreateSwapChain(hwnd);
 	CreateCommandObjects();
@@ -50,10 +56,12 @@ void Renderer::Initialize(HWND hwnd)
 
 	CreateCullingRootSignature();
 	CreateCullingPipeline();
+	CreateCommandSignature();
 }
 
 void Renderer::WaitForPreviousFrame()
 {
+	// Do not reuse the command allocator while the GPU is still reading it.
 	const UINT64 fenceToWaitFor = ++m_fenceValue;
 
 	HRESULT hr = m_commandQueue->Signal(m_fence.Get(), fenceToWaitFor);
@@ -72,14 +80,25 @@ void Renderer::WaitForPreviousFrame()
 
 void Renderer::BeginFrame()
 {
-	// Reset command allocator and command list for the current frame
+	// Poll the client size so resizing works without a separate resize callback.
+	RECT clientRect{};
+	if (GetClientRect(m_hwnd, &clientRect))
+	{
+		const UINT width = static_cast<UINT>(std::max<LONG>(1, clientRect.right - clientRect.left));
+		const UINT height = static_cast<UINT>(std::max<LONG>(1, clientRect.bottom - clientRect.top));
+		if (width != m_width || height != m_height)
+			Resize(width, height);
+	}
+	UpdateCamera();
+
+	// The allocator and list are reused after the previous frame has finished.
 	HRESULT hr = m_commandAllocator->Reset();
 	ThrowIfFailed(hr, "Reset command allocator");
 
 	hr = m_commandList->Reset(m_commandAllocator.Get(), nullptr);
 	ThrowIfFailed(hr, "Reset command list");
 
-	// Transition the render target to the render target state
+	// A back buffer must leave PRESENT state before we render into it.
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Transition.pResource = m_renderTargets[m_frameIndex].Get();
@@ -88,61 +107,95 @@ void Renderer::BeginFrame()
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 	m_commandList->ResourceBarrier(1, &barrier);
 
-	// Get the render target view handle for the current frame
+	// Pick the RTV belonging to the current back buffer.
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
 	rtvHandle.ptr += static_cast<SIZE_T>(m_frameIndex * m_rtvDescriptorSize);
+	D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
 
-	// Set the render target for the current frame
-	m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+	// Send color and depth output to the current frame's views.
+	m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 
-	// Set the viewport and scissor rectangle used for rasterization.
+	// Keep rasterization aligned with the current client size.
 	D3D12_VIEWPORT viewport{};
-	viewport.Width = static_cast<float>(defaultWidth);
-	viewport.Height = static_cast<float>(defaultHeight);
+	viewport.Width = static_cast<float>(m_width);
+	viewport.Height = static_cast<float>(m_height);
 	viewport.MaxDepth = 1.0f;
 	m_commandList->RSSetViewports(1, &viewport);
 
-	D3D12_RECT scissorRect{ 0L, 0L, static_cast<LONG>(defaultWidth), static_cast<LONG>(defaultHeight) };
+	D3D12_RECT scissorRect{ 0L, 0L, static_cast<LONG>(m_width), static_cast<LONG>(m_height) };
 	m_commandList->RSSetScissorRects(1, &scissorRect);
 
-	// Clear the render target
+	// Start with a clean color and depth buffer.
 	m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+	m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 }
 
 void Renderer::Render()
 {
-	DispatchCulling();
+	// F1 switches between the indirect path and a simple CPU baseline.
+	static bool previousToggleState = false;
+	const bool toggleState = (GetAsyncKeyState(VK_F1) & 0x8000) != 0;
+	if (toggleState && !previousToggleState)
+		m_useIndirect = !m_useIndirect;
+	previousToggleState = toggleState;
+	if (m_useIndirect)
+		// First build the command stream that ExecuteIndirect will consume.
+		DispatchCulling();
 
-	// Set the root signature, pipeline state, and draw visible cube instances.
+	// Set up the graphics state shared by both submission paths.
 	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
 	ID3D12DescriptorHeap* descriptorHeaps[] = { m_srvHeap.Get() };
 
 	m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-	// Bind camera CBV (root parameter 0)
+	// Root parameter 0: camera matrix.
 	m_commandList->SetGraphicsRootConstantBufferView(0, m_cameraBuffer->GetGPUVirtualAddress());
 
-	// Get descriptor 1 (object buffer SRV)
+	// Descriptor 1 contains the object transforms.
 	D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 	gpuHandle.ptr += m_srvDescriptorSize;
 
-	// Bind object buffer SRV (root parameter 1)
+	// Root parameter 1: object-buffer SRV.
 	m_commandList->SetGraphicsRootDescriptorTable(1, gpuHandle);
-
-	// Bind GPU visibility mask SRV (root parameter 2)
-	gpuHandle.ptr += m_srvDescriptorSize;
-	m_commandList->SetGraphicsRootDescriptorTable(2, gpuHandle);
 
 	m_commandList->SetPipelineState(m_pipelineState.Get());
 	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
 	m_commandList->IASetIndexBuffer(&m_indexBufferView);
-	m_commandList->DrawIndexedInstanced(36, ObjectCount, 0, 0, 0);
+	if (m_useIndirect)
+	{
+		// The GPU count decides how many of the generated commands are executed.
+		m_commandList->ExecuteIndirect(m_commandSignature.Get(), ObjectCount, m_indirectArgsBuffer.Get(), 0,
+			m_indirectCountBuffer.Get(), 0);
+	}
+	else
+	{
+		for (uint32_t objectIndex = 0; objectIndex < ObjectCount; ++objectIndex)
+		{
+			m_commandList->SetGraphicsRoot32BitConstant(2, objectIndex, 0);
+			m_commandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
+		}
+	}
+
+	++m_frameCounter;
+	const auto now = std::chrono::steady_clock::now();
+	if (now - m_lastDiagnostic >= std::chrono::seconds(1))
+	{
+		const auto elapsed = std::chrono::duration<float>(now - m_lastDiagnostic).count();
+		const float fps = static_cast<float>(m_frameCounter) / elapsed;
+		const std::string message = std::format("CatalystEngine: mode={}, objects={}, CPU draws={}, FPS={:.1f}\n",
+			m_useIndirect ? "GPU indirect" : "CPU baseline", ObjectCount,
+			m_useIndirect ? 1u : ObjectCount, fps);
+		OutputDebugStringA(message.c_str());
+		m_frameCounter = 0;
+		m_lastDiagnostic = now;
+	}
 }
 
 void Renderer::EndFrame()
 {
+	// Submit this frame, present it, and move to the next back buffer.
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Transition.pResource = m_renderTargets[m_frameIndex].Get();
@@ -164,21 +217,6 @@ void Renderer::EndFrame()
 	ThrowIfFailed(hr, "Present swap chain");
 	
 	WaitForPreviousFrame();
-
-	D3D12_RANGE readRange{ 0, sizeof(uint32_t) * ObjectCount };
-
-	void* mappedData = nullptr;
-	hr = m_visibilityReadbackBuffer->Map(0, &readRange, &mappedData);
-
-	ThrowIfFailed(hr, "Failed to map visibility readback buffer!");
-
-	const uint32_t* visibility = static_cast<const uint32_t*>(mappedData);
-	m_visibleObjectCount = 0;
-	for (uint32_t i = 0; i < ObjectCount; ++i)
-		m_visibleObjectCount += visibility[i] != 0 ? 1u : 0u;
-
-	D3D12_RANGE writtenRange{ 0, 0 };
-	m_visibilityReadbackBuffer->Unmap(0, &writtenRange);
 
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
@@ -260,6 +298,11 @@ void Renderer::CreateCommandObjects()
 
 	// Close the command list as it will be reset before recording commands
 	m_commandList->Close();
+
+	ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "Create fence");
+	m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+	if (!m_fenceEvent)
+		ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()), "Create fence event");
 }
 
 void Renderer::CreateRenderTargets()
@@ -288,15 +331,55 @@ void Renderer::CreateRenderTargets()
 		m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
 		rtvHandle.ptr += m_rtvDescriptorSize;
 	}
+	CreateDepthStencil();
+}
 
-	// Create fence and fence event
-	hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence));
+void Renderer::Resize(UINT width, UINT height)
+{
+	// ResizeBuffers requires all references to the old back buffers to be released first.
+	WaitForPreviousFrame();
+	for (auto& renderTarget : m_renderTargets)
+		renderTarget.Reset();
+	m_depthStencil.Reset();
+	ThrowIfFailed(m_swapChain->ResizeBuffers(bufferCount, width, height,
+		DXGI_FORMAT_R8G8B8A8_UNORM, 0), "Resize swap chain buffers");
+	m_width = width;
+	m_height = height;
+	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+	CreateRenderTargets();
+}
 
-	ThrowIfFailed(hr, "Failed to create fence!");
+void Renderer::CreateDepthStencil()
+{
+	// Depth is a separate resource from the swap chain because it is not presented.
+	D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+	heapDesc.NumDescriptors = 1;
+	heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+	ThrowIfFailed(m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_dsvHeap)), "Create DSV heap");
 
-	m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-
-	ThrowIfFailed(hr, "Failed to create fence event!");
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+	D3D12_RESOURCE_DESC desc{};
+	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	desc.Width = m_width;
+	desc.Height = m_height;
+	desc.DepthOrArraySize = 1;
+	desc.MipLevels = 1;
+	desc.Format = DXGI_FORMAT_D32_FLOAT;
+	desc.SampleDesc.Count = 1;
+	desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+	D3D12_CLEAR_VALUE clearValue{};
+	clearValue.Format = DXGI_FORMAT_D32_FLOAT;
+	clearValue.DepthStencil.Depth = 1.0f;
+	ThrowIfFailed(m_device->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE,
+		&desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue,
+		IID_PPV_ARGS(&m_depthStencil)), "Create depth stencil");
+	D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc{};
+	viewDesc.Format = DXGI_FORMAT_D32_FLOAT;
+	viewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+	m_device->CreateDepthStencilView(m_depthStencil.Get(), &viewDesc,
+		m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 void Renderer::CreateCameraBuffer()
@@ -304,7 +387,7 @@ void Renderer::CreateCameraBuffer()
 	// Create camera matrix
 	DirectX::XMMATRIX view = DirectX::XMMatrixLookAtLH
 	(
-		DirectX::XMVectorSet(0.0f, 0.0f, -50.0f, 1.0f),
+		DirectX::XMVectorSet(0.0f, 0.0f, -120.0f, 1.0f),
 		DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f),
 		DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)
 	);
@@ -360,8 +443,71 @@ void Renderer::CreateCameraBuffer()
 	m_cameraBuffer->Unmap(0, nullptr);
 }
 
+void Renderer::UpdateCamera()
+{
+	// Arrow keys orbit and zoom; WASD pans the point the camera is looking at.
+	static float distance = 120.0f;
+	static float angle = 0.0f;
+	static float targetX = 0.0f;
+	static float targetY = 0.0f;
+	static float targetZ = 0.0f;
+	if (GetAsyncKeyState(VK_LEFT) & 0x8000)
+		angle -= 0.02f;
+	if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
+		angle += 0.02f;
+	if (GetAsyncKeyState(VK_UP) & 0x8000)
+		distance = std::max(5.0f, distance - 0.25f);
+	if (GetAsyncKeyState(VK_DOWN) & 0x8000)
+		distance = std::min(500.0f, distance + 0.25f);
+	const float moveSpeed = 0.75f;
+	const float sinAngle = sinf(angle);
+	const float cosAngle = cosf(angle);
+	const float rightX = cosAngle;
+	const float rightZ = sinAngle;
+	const float forwardX = -sinAngle;
+	const float forwardZ = cosAngle;
+	if (GetAsyncKeyState('A') & 0x8000)
+	{
+		targetX -= rightX * moveSpeed;
+		targetZ -= rightZ * moveSpeed;
+	}
+	if (GetAsyncKeyState('D') & 0x8000)
+	{
+		targetX += rightX * moveSpeed;
+		targetZ += rightZ * moveSpeed;
+	}
+	if (GetAsyncKeyState('W') & 0x8000)
+	{
+		targetX += forwardX * moveSpeed;
+		targetZ += forwardZ * moveSpeed;
+	}
+	if (GetAsyncKeyState('S') & 0x8000)
+	{
+		targetX -= forwardX * moveSpeed;
+		targetZ -= forwardZ * moveSpeed;
+	}
+
+	const DirectX::XMVECTOR target = DirectX::XMVectorSet(targetX, targetY, targetZ, 1.0f);
+	const DirectX::XMVECTOR position = DirectX::XMVectorSet(
+		targetX + sinAngle * distance, targetY, targetZ - cosAngle * distance, 1.0f);
+	const DirectX::XMMATRIX view = DirectX::XMMatrixLookAtLH(
+		position, target, DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+	const DirectX::XMMATRIX projection = DirectX::XMMatrixPerspectiveFovLH(
+		DirectX::XMConvertToRadians(60.0f),
+		static_cast<float>(m_width) / static_cast<float>(m_height), 0.1f, 1000.0f);
+	DirectX::XMStoreFloat4x4(&m_cameraData.viewProjection,
+		DirectX::XMMatrixTranspose(view * projection));
+
+	void* mappedData = nullptr;
+	D3D12_RANGE readRange{};
+	ThrowIfFailed(m_cameraBuffer->Map(0, &readRange, &mappedData), "Map camera buffer");
+	memcpy(mappedData, &m_cameraData, sizeof(CameraData));
+	m_cameraBuffer->Unmap(0, nullptr);
+}
+
 void Renderer::CreateObjectBuffer()
 {
+	// Geometry and object transforms live in upload heaps in this small sample for simple CPU initialization.
 	// Create heap properties and resource description for the vertex buffer
 	D3D12_HEAP_PROPERTIES heapProps{};
 	heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -473,16 +619,24 @@ void Renderer::CreateObjectBuffer()
 	{
 		ObjectData object{};
 
-		float x = (i % 32 - 16) * 0.75f;
-		float y = (i / (float)32 - 16) * 0.75f;
+		constexpr uint32_t sceneWidth = 20;
+		constexpr uint32_t sceneHeight = 20;
+		constexpr uint32_t sceneDepth = 25;
+		constexpr float objectSpacing = 2.5f;
+		const uint32_t xIndex = i % sceneWidth;
+		const uint32_t yIndex = (i / sceneWidth) % sceneHeight;
+		const uint32_t zIndex = (i / (sceneWidth * sceneHeight)) % sceneDepth;
+		const float x = (static_cast<float>(xIndex) - (sceneWidth - 1) * 0.5f) * objectSpacing;
+		const float y = (static_cast<float>(yIndex) - (sceneHeight - 1) * 0.5f) * objectSpacing;
+		const float z = (static_cast<float>(zIndex) - (sceneDepth - 1) * 0.5f) * objectSpacing;
 
 		// World transform
-		DirectX::XMMATRIX world = DirectX::XMMatrixTranslation(x, y, 0.0f);
+		DirectX::XMMATRIX world = DirectX::XMMatrixTranslation(x, y, z);
 
 		DirectX::XMStoreFloat4x4(&object.worldMatrix, DirectX::XMMatrixTranspose(world));
 
 		// Bounding sphere
-		object.bounds = { x, y, 0.0f, 0.866f };
+		object.bounds = { x, y, z, 0.866f };
 
 		objects[i] = object;
 	}
@@ -526,7 +680,8 @@ void Renderer::CreateObjectBuffer()
 
 void Renderer::CreateVisibleObjectBuffer()
 {
-	UINT64 bufferSize = sizeof(uint32_t) * ObjectCount;
+	// Compute appends commands here, while ExecuteIndirect consumes the same buffer later in the frame.
+	UINT64 bufferSize = sizeof(IndirectCommand) * ObjectCount;
 
 	D3D12_HEAP_PROPERTIES heapProperties{};
 	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -545,19 +700,30 @@ void Renderer::CreateVisibleObjectBuffer()
 		&heapProperties,
 		D3D12_HEAP_FLAG_NONE,
 		&bufferDesc,
-		D3D12_RESOURCE_STATE_GENERIC_READ,
+		D3D12_RESOURCE_STATE_COMMON,
 		nullptr,
 		IID_PPV_ARGS(&m_visibleObjectBuffer)
 	);
 
-	ThrowIfFailed(hr, "Failed to create visible object buffer");
+	ThrowIfFailed(hr, "Failed to create indirect argument buffer");
+	m_indirectArgsBuffer = m_visibleObjectBuffer;
+
+	bufferDesc.Width = sizeof(uint32_t);
+	hr = m_device->CreateCommittedResource(
+		&heapProperties,
+		D3D12_HEAP_FLAG_NONE,
+		&bufferDesc,
+		D3D12_RESOURCE_STATE_COMMON,
+		nullptr,
+		IID_PPV_ARGS(&m_indirectCountBuffer));
+	ThrowIfFailed(hr, "Failed to create indirect count buffer");
 }
 
 void Renderer::CreateDescriptorHeap()
 {
-	// Create descriptor heap for object data
+	// Slots 0-3 are CBV, object SRV, command UAV, and count UAV respectively.
 	D3D12_DESCRIPTOR_HEAP_DESC objectHeapDesc{};
-	objectHeapDesc.NumDescriptors = 4;
+	objectHeapDesc.NumDescriptors = 6;
 	objectHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	objectHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
@@ -567,6 +733,13 @@ void Renderer::CreateDescriptorHeap()
 	);
 
 	ThrowIfFailed(hr, "Failed to create object data descriptor heap!");
+
+	D3D12_DESCRIPTOR_HEAP_DESC clearHeapDesc{};
+	clearHeapDesc.NumDescriptors = 1;
+	clearHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	clearHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	ThrowIfFailed(m_device->CreateDescriptorHeap(&clearHeapDesc, IID_PPV_ARGS(&m_clearHeap)),
+		"Create CPU clear descriptor heap");
 
 	m_srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
@@ -585,6 +758,7 @@ void Renderer::CreateCameraCBV()
 
 void Renderer::CreateObjectSRV()
 {
+	// The descriptors below must match the register bindings in Triangle.hlsl and Culling.hlsl.
 	// Create shader resource view
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -600,37 +774,39 @@ void Renderer::CreateObjectSRV()
 
 	m_device->CreateShaderResourceView(m_objectDataBuffer.Get(), &srvDesc, cpuHandle);
 
-	// Create visibility SRV at descriptor 2.
-	cpuHandle.ptr += m_srvDescriptorSize;
-	D3D12_SHADER_RESOURCE_VIEW_DESC visibilitySrvDesc{};
-	visibilitySrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-	visibilitySrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	visibilitySrvDesc.Format = DXGI_FORMAT_UNKNOWN;
-	visibilitySrvDesc.Buffer.NumElements = ObjectCount;
-	visibilitySrvDesc.Buffer.StructureByteStride = sizeof(uint32_t);
-	m_device->CreateShaderResourceView(m_visibleObjectBuffer.Get(), &visibilitySrvDesc, cpuHandle);
-
-	// Create UAV at descriptor 3.
+	// Create indirect-command UAV at descriptor 2.
 	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
 	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
 	uavDesc.Format = DXGI_FORMAT_UNKNOWN;
 	uavDesc.Buffer.FirstElement = 0;
 	uavDesc.Buffer.NumElements = ObjectCount;
-	uavDesc.Buffer.StructureByteStride = sizeof(uint32_t);
+	uavDesc.Buffer.StructureByteStride = sizeof(IndirectCommand);
 	uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
 	cpuHandle.ptr += m_srvDescriptorSize;
 
 	m_device->CreateUnorderedAccessView(
-		m_visibleObjectBuffer.Get(),
+		m_indirectArgsBuffer.Get(),
 		nullptr,
 		&uavDesc,
 		cpuHandle
 	);
+
+	// Create the command-count UAV at descriptor 3.
+	cpuHandle.ptr += m_srvDescriptorSize;
+	D3D12_UNORDERED_ACCESS_VIEW_DESC countUavDesc = {};
+	countUavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+	countUavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+	countUavDesc.Buffer.NumElements = 1;
+	countUavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+	m_device->CreateUnorderedAccessView(m_indirectCountBuffer.Get(), nullptr, &countUavDesc, cpuHandle);
+	m_device->CreateUnorderedAccessView(m_indirectCountBuffer.Get(), nullptr, &countUavDesc,
+		m_clearHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 void Renderer::CreateRootSignature()
 {
+	// Graphics root parameters are: camera CBV, object SRV table, and per-command object index constant.
 	// Create root signature
 	D3D12_DESCRIPTOR_RANGE range{};
 	range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -653,24 +829,18 @@ void Renderer::CreateRootSignature()
 	objectParameter.DescriptorTable.pDescriptorRanges = &range;
 	objectParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
-	D3D12_DESCRIPTOR_RANGE visibilityRange{};
-	visibilityRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-	visibilityRange.NumDescriptors = 1;
-	visibilityRange.BaseShaderRegister = 1;
-	visibilityRange.RegisterSpace = 0;
-	visibilityRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-	D3D12_ROOT_PARAMETER visibilityParameter{};
-	visibilityParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	visibilityParameter.DescriptorTable.NumDescriptorRanges = 1;
-	visibilityParameter.DescriptorTable.pDescriptorRanges = &visibilityRange;
-	visibilityParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	D3D12_ROOT_PARAMETER objectIndexParameter{};
+	objectIndexParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+	objectIndexParameter.Constants.ShaderRegister = 1;
+	objectIndexParameter.Constants.RegisterSpace = 0;
+	objectIndexParameter.Constants.Num32BitValues = 1;
+	objectIndexParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
 	D3D12_ROOT_PARAMETER parameter[3] =
 	{
 		cameraParameter,
 		objectParameter,
-		visibilityParameter
+		objectIndexParameter
 	};
 
 	// Create root signature
@@ -705,6 +875,7 @@ void Renderer::CreateRootSignature()
 
 void Renderer::CreatePipelineState()
 {
+	// The PSO combines compiled shaders with the fixed-function state used by the cube pass.
 	// Create graphics pipeline state object (PSO)
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 	psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
@@ -747,17 +918,18 @@ void Renderer::CreatePipelineState()
 	}
 	psoDesc.BlendState = blendDesc;
 
-	// Setup the depth-stencil state (no depth testing or writing).
+	// Setup the depth-stencil state.
 	D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
-	depthStencilDesc.DepthEnable = FALSE;
-	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+	depthStencilDesc.DepthEnable = TRUE;
+	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
 	depthStencilDesc.StencilEnable = FALSE;
 	psoDesc.DepthStencilState = depthStencilDesc;
 
 	// Set up the render target formats
 	psoDesc.NumRenderTargets = 1;
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
 	psoDesc.SampleDesc.Count = 1;
 	psoDesc.SampleMask = UINT_MAX;
 
@@ -769,7 +941,8 @@ void Renderer::CreatePipelineState()
 
 void Renderer::CreateCullingRootSignature()
 {
-	D3D12_ROOT_PARAMETER rootParameters[3]{};
+	// Compute bindings are camera b0, objects t0, commands u0, and the append counter u1.
+	D3D12_ROOT_PARAMETER rootParameters[4]{};
 
 	// Parameter 0: Camera CBV (b0)
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -790,7 +963,7 @@ void Renderer::CreateCullingRootSignature()
 	rootParameters[1].DescriptorTable.pDescriptorRanges = &objectRange;
 	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-	// Parameter 2: Visibility UAV (u0)
+	// Parameter 2: Indirect command UAV (u0) and count UAV (u1)
 	D3D12_DESCRIPTOR_RANGE visibilityRange{};
 	visibilityRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 	visibilityRange.NumDescriptors = 1;
@@ -804,7 +977,12 @@ void Renderer::CreateCullingRootSignature()
 	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
 	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
-	rootSignatureDesc.NumParameters = 3;
+	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+	rootParameters[3].Descriptor.ShaderRegister = 1;
+	rootParameters[3].Descriptor.RegisterSpace = 0;
+	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+	rootSignatureDesc.NumParameters = 4;
 	rootSignatureDesc.pParameters = rootParameters;
 	rootSignatureDesc.NumStaticSamplers = 0;
 	rootSignatureDesc.pStaticSamplers = nullptr;
@@ -832,36 +1010,11 @@ void Renderer::CreateCullingRootSignature()
 	ThrowIfFailed(hr, "Failed to create culling root signature!");
 	assert(m_cullingRootSignature);
 
-	// Create visibility readback buffer
-	D3D12_HEAP_PROPERTIES heapProps{};
-	heapProps.Type = D3D12_HEAP_TYPE_READBACK;
-
-	D3D12_RESOURCE_DESC bufferDesc{};
-	bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	bufferDesc.Width = sizeof(uint32_t) * ObjectCount;
-	bufferDesc.Height = 1;
-	bufferDesc.DepthOrArraySize = 1;
-	bufferDesc.MipLevels = 1;
-	bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
-	bufferDesc.SampleDesc.Count = 1;
-	bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-	bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-	hr = m_device->CreateCommittedResource(
-		&heapProps,
-		D3D12_HEAP_FLAG_NONE,
-		&bufferDesc,
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		nullptr,
-		IID_PPV_ARGS(&m_visibilityReadbackBuffer));
-
-	ThrowIfFailed(hr, "Failed to create visibility readback buffer!");
-	assert(m_visibilityReadbackBuffer);
 }
 
 void Renderer::CreateCullingPipeline()
 {
-	// Load/compile Culling.hlsl first
+	// Compile the compute shader at startup so shader errors are reported before frame recording begins.
 	HRESULT hr = D3DCompileFromFile(
 		L"shaders/Culling.hlsl",
 		nullptr,
@@ -887,8 +1040,27 @@ void Renderer::CreateCullingPipeline()
 	assert(m_cullingPipelineState);
 }
 
+void Renderer::CreateCommandSignature()
+{
+	// Each command sets the object-index root constant, then executes one indexed draw.
+	D3D12_INDIRECT_ARGUMENT_DESC arguments[2]{};
+	arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+	arguments[0].Constant.RootParameterIndex = 2;
+	arguments[0].Constant.DestOffsetIn32BitValues = 0;
+	arguments[0].Constant.Num32BitValuesToSet = 1;
+	arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+
+	D3D12_COMMAND_SIGNATURE_DESC desc{};
+	desc.ByteStride = sizeof(IndirectCommand);
+	desc.NumArgumentDescs = _countof(arguments);
+	desc.pArgumentDescs = arguments;
+	ThrowIfFailed(m_device->CreateCommandSignature(&desc, m_rootSignature.Get(), IID_PPV_ARGS(&m_commandSignature)),
+		"Create indirect command signature");
+}
+
 void Renderer::DispatchCulling()
 {
+	// This pass converts object data into a compact command stream for ExecuteIndirect.
 	m_commandList->SetComputeRootSignature(m_cullingRootSignature.Get());
 
 	ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
@@ -905,62 +1077,63 @@ void Renderer::DispatchCulling()
 
 	m_commandList->SetComputeRootDescriptorTable(1, objectHandle);
 
-	// u0 - visibility buffer
-	D3D12_GPU_DESCRIPTOR_HANDLE visibilityHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-
-	visibilityHandle.ptr += m_srvDescriptorSize * 3;
-
-	m_commandList->SetComputeRootDescriptorTable(2, visibilityHandle);
+	// u0 is the command UAV; u1 is the root-bound append counter.
+	D3D12_GPU_DESCRIPTOR_HANDLE commandHandle = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+	commandHandle.ptr += m_srvDescriptorSize * 2;
+	m_commandList->SetComputeRootDescriptorTable(2, commandHandle);
+	m_commandList->SetComputeRootUnorderedAccessView(3, m_indirectCountBuffer->GetGPUVirtualAddress());
 
 	m_commandList->SetPipelineState(m_cullingPipelineState.Get());
 
-	// Transition visible object buffer to UAV
-	D3D12_RESOURCE_BARRIER barrierCommonToUAV{};
-	barrierCommonToUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	barrierCommonToUAV.Transition.pResource = m_visibleObjectBuffer.Get();
-	barrierCommonToUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_GENERIC_READ;
-	barrierCommonToUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-	barrierCommonToUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	// Buffers are COMMON on creation, then remain INDIRECT_ARGUMENT between frames.
+	D3D12_RESOURCE_BARRIER stateBarriers[2]{};
+	const D3D12_RESOURCE_STATES generatedBufferState =
+		m_indirectBuffersInitialized ? D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT : D3D12_RESOURCE_STATE_COMMON;
+	for (auto& barrier : stateBarriers)
+	{
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.StateBefore = generatedBufferState;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	}
+	stateBarriers[0].Transition.pResource = m_indirectArgsBuffer.Get();
+	stateBarriers[1].Transition.pResource = m_indirectCountBuffer.Get();
+	m_commandList->ResourceBarrier(2, stateBarriers);
+	m_indirectBuffersInitialized = true;
 
-	m_commandList->ResourceBarrier(1, &barrierCommonToUAV);
+	D3D12_RESOURCE_BARRIER barriers[2]{};
+	barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	barriers[0].UAV.pResource = m_indirectArgsBuffer.Get();
+	barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	barriers[1].UAV.pResource = m_indirectCountBuffer.Get();
+	m_commandList->ResourceBarrier(2, barriers);
+
+	// Clear only the counter. The structured command buffer is not compatible with UAV clear operations.
+	D3D12_GPU_DESCRIPTOR_HANDLE countGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+	countGpu.ptr += m_srvDescriptorSize * 3;
+	D3D12_CPU_DESCRIPTOR_HANDLE countCpu = m_clearHeap->GetCPUDescriptorHandleForHeapStart();
+	UINT zeroes[4] = {};
+	m_commandList->ClearUnorderedAccessViewUint(countGpu, countCpu, m_indirectCountBuffer.Get(), zeroes, 0, nullptr);
 
 	m_commandList->Dispatch((ObjectCount + cullingThreadGroupSize - 1) / cullingThreadGroupSize, 1, 1);
 
-	// Compute -> Graphics barrier
-	D3D12_RESOURCE_BARRIER barrierUAV{};
-	barrierUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-	barrierUAV.UAV.pResource = m_visibleObjectBuffer.Get();
+	// Ensure all atomic appends are visible before the graphics queue interprets the buffer as commands.
+	D3D12_RESOURCE_BARRIER computeBarrier[2]{};
+	computeBarrier[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	computeBarrier[0].UAV.pResource = m_indirectArgsBuffer.Get();
+	computeBarrier[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	computeBarrier[1].UAV.pResource = m_indirectCountBuffer.Get();
+	m_commandList->ResourceBarrier(2, computeBarrier);
 
-	m_commandList->ResourceBarrier(1, &barrierUAV);
-
-	// Transition visibility buffer
-	D3D12_RESOURCE_BARRIER toCopy{};
-	toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	toCopy.Transition.pResource = m_visibleObjectBuffer.Get();
-	toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-	toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-	toCopy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
-	m_commandList->ResourceBarrier(1, &toCopy);
-
-	assert(m_visibilityReadbackBuffer);
-	assert(m_visibleObjectBuffer);
-
-	if (!m_visibilityReadbackBuffer)
-		throw std::runtime_error("Readback buffer is NULL");
-
-	if (!m_visibleObjectBuffer)
-		throw std::runtime_error("Visibility buffer is NULL");
-
-	m_commandList->CopyResource(m_visibilityReadbackBuffer.Get(), m_visibleObjectBuffer.Get());
-
-	// Leave the visibility buffer shader-readable for the graphics pass and the next frame's culling pass.
-	D3D12_RESOURCE_BARRIER backToShaderReadable{};
-	backToShaderReadable.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	backToShaderReadable.Transition.pResource = m_visibleObjectBuffer.Get();
-	backToShaderReadable.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-	backToShaderReadable.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
-	backToShaderReadable.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
-	m_commandList->ResourceBarrier(1, &backToShaderReadable);
+	D3D12_RESOURCE_BARRIER generatedBarriers[2]{};
+	for (auto& barrier : generatedBarriers)
+	{
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	}
+	generatedBarriers[0].Transition.pResource = m_indirectArgsBuffer.Get();
+	generatedBarriers[1].Transition.pResource = m_indirectCountBuffer.Get();
+	m_commandList->ResourceBarrier(2, generatedBarriers);
 }

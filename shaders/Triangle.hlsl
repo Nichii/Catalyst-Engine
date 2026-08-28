@@ -1,3 +1,4 @@
+// This must match the matrix used by the culling shader.
 cbuffer Camera : register(b0)
 {
     float4x4 viewProjection;
@@ -9,8 +10,13 @@ struct ObjectData
     float4 bounds;
 };
 
+// ExecuteIndirect changes this value for each command.
 StructuredBuffer<ObjectData> objectDataBuffer : register(t0);
-StructuredBuffer<uint> visibleObjects : register(t1);
+// The command signature writes this root constant for us.
+cbuffer DrawCommand : register(b1)
+{
+    uint objectIndex;
+};
 
 struct VSInput
 {
@@ -26,13 +32,8 @@ PSInput VSMain(VSInput input, uint instanceID : SV_InstanceID)
 {
     PSInput output;
     
-    ObjectData objData = objectDataBuffer[instanceID];
-
-    if (visibleObjects[instanceID] == 0)
-    {
-        output.position = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        return output;
-    }
+    // Look up the transform selected by the current indirect command.
+    ObjectData objData = objectDataBuffer[objectIndex];
     
     float4 worldPosition = mul
     (

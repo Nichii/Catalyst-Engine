@@ -5,9 +5,13 @@
 class Application
 {
 public:
+	// Window needs the module handle when it registers its class.
 	Application(HINSTANCE instance);
 
+	// Set up the window before the renderer starts using it.
 	bool Initialize(int showCommand);
+
+	// Keep processing messages and rendering until the window closes.
 	int Run();
 
 private:

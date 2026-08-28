@@ -5,6 +5,7 @@ project(CatalystEngine
     LANGUAGES CXX
 )
 
+# Keep the C++ standard fixed across machines.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -18,12 +19,11 @@ add_executable(CatalystEngine WIN32
     src/Core/Dx12Utils.h
     src/Renderer/Renderer.h
     src/Renderer/Renderer.cpp
-    src/Renderer/CullingPass.h
-    src/Renderer/CullingPass.cpp
     shaders/Triangle.hlsl
     shaders/Culling.hlsl
 )
 
+# Shaders are compiled by the app, so put the source files beside the executable.
 add_custom_command(TARGET CatalystEngine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:CatalystEngine>/shaders"
@@ -43,6 +43,7 @@ target_compile_definitions(CatalystEngine
         NOMINMAX
 )
 
+# These libraries come from the Windows SDK.
 target_link_libraries(CatalystEngine
     PRIVATE
         d3d12.lib
