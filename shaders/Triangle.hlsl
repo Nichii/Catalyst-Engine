@@ -6,7 +6,7 @@ cbuffer Camera : register(b0)
 
 struct ObjectData
 {
-    float4x4 modelMatrix;
+    float4x4 worldMatrix;
     float4 bounds;
 };
 
@@ -38,7 +38,7 @@ PSInput VSMain(VSInput input, uint instanceID : SV_InstanceID)
     float4 worldPosition = mul
     (
         float4(input.position, 1.0),
-        objData.modelMatrix
+        objData.worldMatrix
     );
     
     output.position = mul(worldPosition, viewProjection);

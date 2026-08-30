@@ -46,7 +46,7 @@ void Renderer::Initialize(HWND hwnd)
 
 	CreateCameraBuffer();
 	CreateObjectBuffer();
-	CreateVisibleObjectBuffer();
+	CreateIndirectBuffers();
 
 	CreateDescriptorHeap();
 	CreateCameraCBV();
@@ -166,12 +166,12 @@ void Renderer::Render()
 	if (m_useIndirect)
 	{
 		// The GPU count decides how many of the generated commands are executed.
-		m_commandList->ExecuteIndirect(m_commandSignature.Get(), ObjectCount, m_indirectArgsBuffer.Get(), 0,
+		m_commandList->ExecuteIndirect(m_commandSignature.Get(), objectCount, m_indirectArgsBuffer.Get(), 0,
 			m_indirectCountBuffer.Get(), 0);
 	}
 	else
 	{
-		for (uint32_t objectIndex = 0; objectIndex < ObjectCount; ++objectIndex)
+		for (uint32_t objectIndex = 0; objectIndex < objectCount; ++objectIndex)
 		{
 			m_commandList->SetGraphicsRoot32BitConstant(2, objectIndex, 0);
 			m_commandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
@@ -185,8 +185,8 @@ void Renderer::Render()
 		const auto elapsed = std::chrono::duration<float>(now - m_lastDiagnostic).count();
 		const float fps = static_cast<float>(m_frameCounter) / elapsed;
 		const std::string message = std::format("CatalystEngine: mode={}, objects={}, CPU draws={}, FPS={:.1f}\n",
-			m_useIndirect ? "GPU indirect" : "CPU baseline", ObjectCount,
-			m_useIndirect ? 1u : ObjectCount, fps);
+			m_useIndirect ? "GPU indirect" : "CPU baseline", objectCount,
+			m_useIndirect ? 1u : objectCount, fps);
 		OutputDebugStringA(message.c_str());
 		m_frameCounter = 0;
 		m_lastDiagnostic = now;
@@ -613,9 +613,9 @@ void Renderer::CreateObjectBuffer()
 
 	// Create object data buffer
 	std::vector<ObjectData> objects;
-	objects.resize(ObjectCount);
+	objects.resize(objectCount);
 
-	for (uint32_t i = 0; i < ObjectCount; ++i)
+	for (uint32_t i = 0; i < objectCount; ++i)
 	{
 		ObjectData object{};
 
@@ -647,7 +647,7 @@ void Renderer::CreateObjectBuffer()
 	D3D12_RESOURCE_DESC objectBufferDesc{};
 	objectBufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	objectBufferDesc.Alignment = 0;
-	objectBufferDesc.Width = ObjectCount * sizeof(ObjectData);
+	objectBufferDesc.Width = objectCount * sizeof(ObjectData);
 	objectBufferDesc.Height = 1;
 	objectBufferDesc.DepthOrArraySize = 1;
 	objectBufferDesc.MipLevels = 1;
@@ -673,15 +673,15 @@ void Renderer::CreateObjectBuffer()
 	D3D12_RANGE objectReadRange{};
 	hr = m_objectDataBuffer->Map(0, &objectReadRange, &mappedObjectData);
 
-	memcpy(mappedObjectData, objects.data(), ObjectCount * sizeof(ObjectData));
+	memcpy(mappedObjectData, objects.data(), objectCount * sizeof(ObjectData));
 
 	m_objectDataBuffer->Unmap(0, nullptr);
 }
 
-void Renderer::CreateVisibleObjectBuffer()
+void Renderer::CreateIndirectBuffers()
 {
 	// Compute appends commands here, while ExecuteIndirect consumes the same buffer later in the frame.
-	UINT64 bufferSize = sizeof(IndirectCommand) * ObjectCount;
+	UINT64 bufferSize = sizeof(IndirectCommand) * objectCount;
 
 	D3D12_HEAP_PROPERTIES heapProperties{};
 	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -702,11 +702,10 @@ void Renderer::CreateVisibleObjectBuffer()
 		&bufferDesc,
 		D3D12_RESOURCE_STATE_COMMON,
 		nullptr,
-		IID_PPV_ARGS(&m_visibleObjectBuffer)
+		IID_PPV_ARGS(&m_indirectArgsBuffer)
 	);
 
 	ThrowIfFailed(hr, "Failed to create indirect argument buffer");
-	m_indirectArgsBuffer = m_visibleObjectBuffer;
 
 	bufferDesc.Width = sizeof(uint32_t);
 	hr = m_device->CreateCommittedResource(
@@ -764,7 +763,7 @@ void Renderer::CreateObjectSRV()
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-	srvDesc.Buffer.NumElements = ObjectCount;
+	srvDesc.Buffer.NumElements = objectCount;
 	srvDesc.Buffer.StructureByteStride = sizeof(ObjectData);
 
 	// Creates SRV at descriptor 1
@@ -779,7 +778,7 @@ void Renderer::CreateObjectSRV()
 	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
 	uavDesc.Format = DXGI_FORMAT_UNKNOWN;
 	uavDesc.Buffer.FirstElement = 0;
-	uavDesc.Buffer.NumElements = ObjectCount;
+	uavDesc.Buffer.NumElements = objectCount;
 	uavDesc.Buffer.StructureByteStride = sizeof(IndirectCommand);
 	uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
@@ -1115,7 +1114,7 @@ void Renderer::DispatchCulling()
 	UINT zeroes[4] = {};
 	m_commandList->ClearUnorderedAccessViewUint(countGpu, countCpu, m_indirectCountBuffer.Get(), zeroes, 0, nullptr);
 
-	m_commandList->Dispatch((ObjectCount + cullingThreadGroupSize - 1) / cullingThreadGroupSize, 1, 1);
+	m_commandList->Dispatch((objectCount + cullingThreadGroupSize - 1) / cullingThreadGroupSize, 1, 1);
 
 	// Ensure all atomic appends are visible before the graphics queue interprets the buffer as commands.
 	D3D12_RESOURCE_BARRIER computeBarrier[2]{};

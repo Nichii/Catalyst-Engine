@@ -75,7 +75,10 @@ This project is deliberately focused on one rendering technique. It does not hav
 ## Project layout
 
 - src/main.cpp - Win32 entry point and message loop
-- src/Renderer.h/.cpp - DirectX 12 setup, frame recording, resources, and passes
-- src/Dx12Utils.h - shared HRESULT diagnostics
+- src/Application.* - application lifecycle and render loop
+- src/Core/Window.* - Win32 window and message pump
+- src/Core/Dx12Utils.h - shared HRESULT and shader diagnostics
+- src/Renderer/Renderer.* - DirectX 12 setup, frame recording, resources, and passes
+- src/Renderer/RendererTypes.h - CPU/GPU data contracts and renderer constants
 - shaders/Triangle.hlsl - instanced graphics shaders
 - shaders/Culling.hlsl - frustum-culling compute shader

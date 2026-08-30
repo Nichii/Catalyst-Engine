@@ -4,41 +4,10 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
-#include <DirectXMath.h>
+#include "RendererTypes.h"
+
 #include <vector>
 #include <chrono>
-
-struct Vertex
-{
-	// There is no material data yet; position is enough to draw the test cubes.
-	DirectX::XMFLOAT3 position;
-};
-
-struct ObjectData
-{
-	// Keep this layout in sync with ObjectData in the shaders.
-	DirectX::XMFLOAT4X4 worldMatrix;
-	// xyz is the sphere center and w is its radius.
-	DirectX::XMFLOAT4 bounds;
-};
-
-struct CameraData
-{
-	// The matrix is transposed before it is copied to the upload buffer.
-	DirectX::XMFLOAT4X4 viewProjection;
-};
-
-struct VisibleObject
-{
-	uint32_t objectID;
-};
-
-struct IndirectCommand
-{
-	// ExecuteIndirect writes this value before the indexed-draw fields are used.
-	uint32_t objectID;
-	D3D12_DRAW_INDEXED_ARGUMENTS draw;
-};
 
 class Renderer
 {
@@ -59,7 +28,7 @@ private:
 	static constexpr UINT bufferCount = 2;
 	static constexpr UINT cullingThreadGroupSize = 64;
 	// Size the buffer for the worst case where every object is visible.
-	static constexpr uint32_t ObjectCount = 10000;
+	static constexpr uint32_t objectCount = RendererConstants::objectCount;
 
 	static constexpr float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f }; // Temporary clear color
 
@@ -101,7 +70,6 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_objectDataBuffer;
 	// This member started as the visibility buffer and now holds compact commands.
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_visibleObjectBuffer;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_indirectArgsBuffer;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_indirectCountBuffer;
 
@@ -127,7 +95,7 @@ private:
 
 	void CreateCameraBuffer();
 	void CreateObjectBuffer();
-	void CreateVisibleObjectBuffer();
+	void CreateIndirectBuffers();
 
 	void CreateDescriptorHeap();
 	void CreateCameraCBV();

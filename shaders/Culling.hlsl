@@ -4,7 +4,7 @@ cbuffer Camera : register(b0)
     float4x4 viewProjection;
 };
 
-// Keep this in sync with Renderer::ObjectCount and the command-buffer capacity.
+// Keep this in sync with RendererConstants::objectCount and the command-buffer capacity.
 static const uint ObjectCount = 10000;
 
 struct ObjectData
